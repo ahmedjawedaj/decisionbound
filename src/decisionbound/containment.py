@@ -280,8 +280,30 @@ def _group_alive(pgid: int, *, leader_reaped: bool) -> bool:
     except ProcessLookupError:
         return False
     except PermissionError:
+        # macOS answers EPERM for a group that holds only zombies, but also for
+        # one we may not signal. Ask ``ps`` which members can still run code.
+        listing = _ps_group_states(pgid)
+        if listing is not None:
+            return any(not state.startswith("Z") for state in listing)
         return not leader_reaped
     return True
+
+
+def _ps_group_states(pgid: int) -> list[str] | None:
+    """``ps`` state of every member of ``pgid``, or None when ``ps`` cannot answer."""
+    try:
+        done = subprocess.run(["ps", "-A", "-o", "pgid=,stat="], capture_output=True, text=True, timeout=10,
+                              env={"LC_ALL": "C", "PATH": os.environ.get("PATH", "/usr/bin:/bin")})
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if done.returncode != 0:
+        return None
+    states = []
+    for line in done.stdout.splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[0] == str(pgid):
+            states.append(parts[1])
+    return states
 
 
 def _signal_group(pgid: int, sig: int) -> bool:

@@ -901,3 +901,18 @@ def test_recording_intent_refuses_when_the_own_identity_cannot_be_read(env, monk
     with pytest.raises(C.ContainmentFailure):
         env.registry.record_intent(workflow_id="wf_manual", task_id="stage", attempt=1, generation=1,
                                    level="posix_session", argv_sha256="0" * 64)
+
+
+@pytest.mark.skipif(IS_WINDOWS, reason="POSIX process groups")
+def test_ps_group_listing_sees_a_zombie_only_group_as_not_runnable(env):
+    """macOS answers EPERM for such a group, and the reaper then relies on this listing."""
+    proc = spawn_bystander()
+    env.tracked.append(proc.pid)
+    live = C._ps_group_states(proc.pid)
+    assert live and not any(state.startswith("Z") for state in live)
+    os.killpg(proc.pid, signal.SIGKILL)
+    end = time.monotonic() + 5
+    while time.monotonic() < end and not all(s.startswith("Z") for s in C._ps_group_states(proc.pid) or ["Z"]):
+        time.sleep(0.05)
+    assert all(state.startswith("Z") for state in C._ps_group_states(proc.pid))  # unreaped zombie
+    proc.wait()
