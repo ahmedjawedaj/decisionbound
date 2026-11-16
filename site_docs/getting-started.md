@@ -1,39 +1,140 @@
-# Quickstart — from installation to verified evidence
+# Quickstart: from installation to a verified decision
 
-## Prerequisites
+This page was run from a clean install. The demo below is executed by the test suite (`tests/integration/test_docs_quickstart.py`) from the installed package, and its output is compared with the blocks shown here.
 
-Python 3.11 or newer. The default local mode needs neither a cloud account nor an LLM API key. SQLite is part of Python. The project uses the Typer and PyYAML packages; the optional local API uses FastAPI and Uvicorn.
+## Install
+
+Python 3.11 or newer and Git. The default mode needs no cloud account, API key or network access. DecisionBound is installed from source because there is no PyPI package.
 
 ```bash
-git clone <your-repository-url>
+git clone https://github.com/ahmedjawedaj/decisionbound.git
 cd decisionbound
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\\Scripts\\activate
-python -m pip install -e '.[test,web,docs]'
+python -m venv .venv && source .venv/bin/activate   # Windows PowerShell: .venv\Scripts\Activate.ps1
+python -m pip install .
+dbound --help
 ```
 
-For the shortest end-user setup path, select a safe default and explicitly register the repository:
+Use `'.[web]'` instead of `.` if you want the local web interface (`dbound serve`). Contributors use `python -m pip install -e '.[test,web,docs,release,mcp]'`.
+
+## 60-second demo
+
+Run it in bash or zsh from an empty directory outside the clone, for example after `cd ..` (on Windows use Git Bash or WSL). `DBOUND_HOME` keeps all state in a throwaway folder, so your real `~/.decisionbound` is untouched.
+
+<!-- quickstart:begin -->
+```bash
+mkdir dbound-demo && cd dbound-demo
+export DBOUND_HOME="$PWD/state"   # throwaway state, nothing is written to ~/.decisionbound
+mkdir -p shop/docs/adr blog acme
+
+cat > shop/docs/adr/0001-thin-handlers.md <<'EOF'
+# Thin handlers
+
+## Context
+HTTP code that held business rules was hard to test.
+
+## Decision
+Keep request handlers thin and put business rules in a separate module.
+EOF
+
+# 1. Record a decision with its evidence, then approve it as a human reviewer.
+dbound init --path shop --name shop --owner ahmad --technologies python,django
+dbound decision discover docs/adr/0001-thin-handlers.md --path shop --scope personal
+ID=$(dbound decision list --path shop | python -c 'import json,sys; print(json.load(sys.stdin)[0]["decision_id"])')
+dbound decision approve "$ID" --revision 1 --path shop
+
+# 2. Ask what each repository may do with it.
+dbound transfer --path shop                  # same project: apply
+dbound init --path blog --name blog --owner ahmad --technologies python,flask
+dbound transfer --path blog                  # same owner, compatible: translate
+dbound init --path acme --name acme --owner someone-else --technologies python
+dbound transfer --path acme                  # different owner: abstain
+
+# 3. Compile the budgeted context a task would receive.
+dbound prepare "Add a comments endpoint" --path blog --tokens 1200
+```
+
+Each `transfer` prints what that repository may do with the approved decision (identifiers differ on every run, and `sha256` is the hash of the ADR file above):
+
+`shop`, the project the decision came from:
+
+```json
+[
+  {
+    "action": "apply",
+    "decision_id": "dec_8727fde99ffe4d6fb90676790c251c41",
+    "evidence_sha256": "d39cab7769e0d10b615f997e4ebf82c3c911fb89b74bbcf4f2d247fe3cdbc518",
+    "reason": "Approved decision from the same project"
+  }
+]
+```
+
+`blog`, a different project with the same owner and compatible technology:
+
+```json
+[
+  {
+    "action": "translate",
+    "decision_id": "dec_8727fde99ffe4d6fb90676790c251c41",
+    "evidence_sha256": "d39cab7769e0d10b615f997e4ebf82c3c911fb89b74bbcf4f2d247fe3cdbc518",
+    "reason": "Personal principle is compatible but needs target-repository adaptation"
+  }
+]
+```
+
+`acme`, a project with a different owner:
+
+```json
+[
+  {
+    "action": "abstain",
+    "decision_id": "dec_8727fde99ffe4d6fb90676790c251c41",
+    "evidence_sha256": "d39cab7769e0d10b615f997e4ebf82c3c911fb89b74bbcf4f2d247fe3cdbc518",
+    "reason": "Personal decision owner differs from target owner"
+  }
+]
+```
+
+`prepare` then compiles the context a task in `blog` would receive, with the evidence hash attached:
+
+```json
+{
+  "estimated_tokens": 24,
+  "items": [
+    {
+      "key": "dec_8727fde99ffe4d6fb90676790c251c41",
+      "priority": 10,
+      "protected": false,
+      "source": "docs/adr/0001-thin-handlers.md#sha256=d39cab7769e0d10b615f997e4ebf82c3c911fb89b74bbcf4f2d247fe3cdbc518",
+      "text": "Keep request handlers thin and put business rules in a separate module."
+    }
+  ],
+  "max_tokens": 1200,
+  "omitted_keys": [],
+  "task": "Add a comments endpoint"
+}
+```
+<!-- quickstart:end -->
+
+What it shows: a decision is a source file plus a human approval, and reuse in another repository is an explicit outcome. `apply` is the same project, `translate` is compatible but needs adapting by a person, `abstain` means the policy refuses, and `escalate` (not shown) means the target owner forbids it. Notes: `approve --revision 1` returns revision `2`, because discovery records a candidate and approval records the next revision. The decision is declared `--scope personal` so that it can leave its own project, and a project-scoped decision never transfers.
+
+## Use it on your own repository
+
+Select a profile and register the repository explicitly. Neither command needs credentials:
 
 ```bash
 cd /path/to/your/project
 dbound setup --profile local-safe --path . --initialize
 dbound doctor --path . --strict
+dbound status --path .
 ```
 
-This is local and requires no model credentials. For provider-specific setup, use `dbound setup --interactive` followed by `dbound doctor --strict`. See [Setup & diagnostics](setup-diagnostics.md).
+`doctor` prints `"write_consent": false` as an informational line (code writes always need separate consent) and `"ready": true` when the project is registered. `--strict` exits nonzero when a required check fails. `setup --initialize` registers the project with the owner `local` and no technology tags. To set an owner and tags, use `dbound init --name my-project --owner me --technologies python,django` instead, because transfer decisions depend on them.
 
-Create a fresh project in a **separate** workspace, or use an existing repository:
-
-```bash
-cd /path/to/your/project
-dbound init --name sample-project --owner local --technologies python
-```
-
-The initializer creates `.decisionbound/project.yaml`; the user-wide registry is stored under `~/.decisionbound/state.sqlite3` by default. Project IDs identify resources but do not authorize access.
+State is stored under `~/.decisionbound/` by default, shared by all your projects. Set `DBOUND_HOME` to use another folder.
 
 ## Create and review evidence
 
-Add an architecture record `docs/adr/0001-domain.md`:
+Add an architecture record such as `docs/adr/0001-domain.md`. Discovery requires nonempty `## Context` and `## Decision` sections:
 
 ```markdown
 # Domain boundaries
@@ -45,16 +146,15 @@ Keep HTTP transport separate from domain decisions for testability.
 Keep handlers thin; put nontrivial business rules in a dedicated module.
 ```
 
-Then inspect the candidate and approve **only after reviewing its source**:
+Inspect the candidate and approve it only after reviewing its source. Use the decision ID and revision from the JSON output:
 
 ```bash
 dbound decision discover docs/adr/0001-domain.md
 dbound decision list
-# Use the actual ID and revision in the JSON output:
-dbound decision approve dec_... --revision 1
+dbound decision approve DECISION_ID --revision 1
 ```
 
-If the evidence file changes after discovery, approval fails. The content hash must be reconsidered; this is not an automatic promotion process.
+If the evidence file changes after discovery, approval fails and you must rediscover and review it.
 
 ## Prepare and inspect a task
 
@@ -62,29 +162,35 @@ If the evidence file changes after discovery, approval fails. The content hash m
 dbound prepare "Add a read-only API endpoint" --tokens 1000
 dbound transfer
 dbound run "Add a read-only API endpoint"
-dbound trace run_...
+dbound trace RUN_ID
 ```
 
-`run` performs an **offline preparation step**, not source-code modification. Its result explicitly states `task_completed: false` even when preparation passes verification.
+`prepare` returns the budgeted context capsule. `run` performs an offline preparation step and does not change source code, and its result states `task_completed: false` even when preparation is verified. `RUN_ID` is the `run_id` printed by `run`.
 
-## Shared local API
+For a deterministic read-only tool run with no model, `dbound agent demo "handler" --path .` searches your files for that text. The search is a plain substring match, so a term that is not in your files returns an empty result.
+
+## Local web interface
+
+Needs the web extra (`python -m pip install '.[web]'` from the clone).
 
 ```bash
 dbound serve
-# in another terminal: retrieve the local_token from ~/.decisionbound/local_token
 ```
 
-Open `http://127.0.0.1:8765`; the local token is required to inspect profiles. All API endpoints run on loopback, and a remote bind is refused.
+Open `http://127.0.0.1:8765`. The pairing token is stored in `local_token` inside the state folder (`~/.decisionbound/local_token` by default). It is a credential, so do not paste it into issues or commit it. The server only binds to loopback.
 
-## Common troubleshooting
+## Troubleshooting
 
 | Symptom | Resolution |
 | --- | --- |
-| Project not initialized | Run `dbound init` in the desired workspace. |
-| Manifest conflicts with registry | Restore the authorized manifest; do not copy project IDs between unrelated projects. |
+| `dbound: command not found` | Activate the virtual environment where you ran `pip install`. |
+| Project not initialized | Run `dbound init` or `dbound setup --initialize` in the repository, or pass `--path`. |
+| `Decision does not belong to this project` | Run `decision approve` with the `--path` of the project that discovered it. |
+| Manifest conflicts with registry | Restore the authorized manifest. Do not copy project IDs between unrelated projects. |
 | ADR discovery refuses a document | Include nonempty `## Context` and `## Decision` sections. |
 | Source changed before approval | Rediscover and review the new evidence. |
-| Protected context does not fit | Increase `--tokens` or simplify task, never silently discard the requirement. |
-| Missing web dependencies | Install `.[web]`. |
+| `prepare` returns no items | No approved decision applies to this project. Approve one, and check `dbound transfer`. |
+| Protected context does not fit | Increase `--tokens` or simplify the task. Protected items are never silently dropped. |
+| Missing web dependencies | Install `'.[web]'`. |
 
-Next: [Profiles](profiles.md), [Python SDK](sdk.md), and [Security](security.md).
+Next: [Profiles](profiles.md), [Python SDK](sdk.md), [CLI reference](cli.md) and [Security](security.md).
