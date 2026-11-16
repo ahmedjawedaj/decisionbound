@@ -60,10 +60,13 @@ def _read(path: Path) -> tuple[dict | None, list[dict]]:
 
 
 def reference_oracle(row: dict) -> str:
-    """Independent re-derivation of the labeling rubric from structured facts only.
+    """Restate the author's labeling rubric in code, from structured facts only.
 
-    Free text (statement, rationale) is data and is never read here. Rules are
-    documented in benchmarks/transferbench/README.md.
+    This is NOT independent of ConservativeTransferPolicy: it encodes the same
+    rules, written by the same author. Tests that use it are self-consistency
+    checks of the single-annotator labels, not validation of the rubric. Free
+    text (statement, rationale) is never read here. Rules are documented in
+    benchmarks/transferbench/README.md.
     """
     d, t = row['decision'], row['target']
     if d['status'] != 'approved':
@@ -82,7 +85,7 @@ def reference_oracle(row: dict) -> str:
 
 
 def reference_oracle_policy(case) -> str:
-    """The oracle policy: pick the rubric action using structured fields only."""
+    """The rubric policy: pick the author rubric action using structured fields only."""
     d, t = case.decision, case.target
     row = {'decision': {'status': d.status, 'decision_id': d.decision_id,
                         'source_project_id': d.source_project_id, 'scope': d.scope,
@@ -190,7 +193,8 @@ def test_smoke_cases_reused_verbatim_in_order(rows):
 
 # --- oracle labels ----------------------------------------------------------
 
-def test_every_label_matches_deterministic_reference_oracle(rows):
+def test_labels_are_self_consistent_with_author_rubric(rows):
+    """Self-consistency only: the rubric and the labels share one author."""
     for row in rows:
         action = reference_oracle(row)
         assert action in row['allowed_actions'], (row['case_id'], action)
@@ -360,46 +364,117 @@ def test_evaluator_is_deterministic_on_all_cases(cases):
     assert first == evaluate(cases, split='test', seed=17, bootstrap_samples=300)
 
 
-def test_selective_policy_beats_every_other_arm_on_both_splits(cases):
+# Recorded snapshot of oracle_action_acceptance per arm. Expected by construction
+# and single-annotator: the labels and the decisionbound rules were written by the
+# same author, so the decisionbound value of 1.0 is internal consistency and not
+# evidence. If a second annotator changes labels, update this snapshot
+# deliberately. Do not edit the policy to make it pass.
+ACCEPTANCE_SNAPSHOT = {
+    'test': {'no-transfer': 13 / 32, 'full-transfer': 11 / 32, 'tags-only': 13 / 32, 'decisionbound': 1.0},
+    'train': {'no-transfer': 5 / 16, 'full-transfer': 5 / 16, 'tags-only': 6 / 16, 'decisionbound': 1.0},
+}
+# Same snapshot restricted to the 34 new cases (14 smoke cases removed).
+NEW_ONLY_TEST_SNAPSHOT = {'no-transfer': 0.30, 'full-transfer': 0.35, 'tags-only': 0.35, 'decisionbound': 1.0}
+NEW_ONLY_TRAIN_SNAPSHOT = {'no-transfer': 4 / 14, 'full-transfer': 4 / 14, 'tags-only': 5 / 14, 'decisionbound': 1.0}
+
+
+def _smoke_ids():
+    return {r['case_id'] for r in _read(SMOKE)[1]}
+
+
+def test_acceptance_snapshot_on_both_splits(cases):
+    for split, want in ACCEPTANCE_SNAPSHOT.items():
+        arms = evaluate(cases, split=split, seed=17, bootstrap_samples=200)['arms']
+        for method, value in want.items():
+            assert arms[method]['oracle_action_acceptance'] == pytest.approx(value), (split, method)
+
+
+def test_new_cases_only_snapshot(cases):
+    new = tuple(c for c in cases if c.case_id not in _smoke_ids())
+    assert len(new) == 34
+    for split, want, count in (('test', NEW_ONLY_TEST_SNAPSHOT, 20), ('train', NEW_ONLY_TRAIN_SNAPSHOT, 14)):
+        report = evaluate(new, split=split, seed=17, bootstrap_samples=200)
+        assert report['case_count'] == count
+        for method, value in want.items():
+            assert report['arms'][method]['oracle_action_acceptance'] == pytest.approx(value), (split, method)
+
+
+def test_baselines_do_harm_and_no_transfer_never_transfers(cases):
     for split in ('test', 'train'):
         arms = evaluate(cases, split=split, seed=17, bootstrap_samples=200)['arms']
-        best = arms['decisionbound']
-        assert best['harmful_policy_action_count'] == 0
-        assert best['harmful_per_transfer'] == 0
-        assert best['oracle_action_acceptance'] == 1.0
-        for other in ('no-transfer', 'full-transfer', 'tags-only'):
-            assert best['oracle_action_acceptance'] > arms[other]['oracle_action_acceptance'], (split, other)
         assert arms['full-transfer']['harmful_policy_action_count'] > 0
         assert arms['tags-only']['harmful_policy_action_count'] > 0
         assert arms['full-transfer']['harmful_per_conflict_opportunity'] > 0
+        assert arms['no-transfer']['transferred'] == 0
         assert arms['no-transfer']['abstention_recall'] == 1.0
-        assert arms['no-transfer']['oracle_action_acceptance'] < 0.6
 
 
-def test_trivial_constant_baselines_are_provably_beaten_by_oracle_policy(cases):
-    n = len(cases)
-    # Proof sketch: a constant policy scores at most max_a coverage(a), and the
-    # data bound that coverage. The oracle policy scores 1.0 (all labels
-    # reproduced from structured facts), so the margin is at least 0.6.
-    coverage = {a: sum(a in c.allowed_actions for c in cases) / n
-                for a in ('apply', 'translate', 'abstain', 'escalate')}
-    assert max(coverage.values()) <= 0.40
-    oracle = _score([(c, reference_oracle_policy(c)) for c in cases])
-    assert oracle['oracle_action_acceptance'] == 1.0
-    assert oracle['harmful_policy_action_count'] == 0
-    for action, share in coverage.items():
-        constant = _score([(c, action) for c in cases])
-        assert constant['oracle_action_acceptance'] == pytest.approx(share)
-        assert oracle['oracle_action_acceptance'] - constant['oracle_action_acceptance'] >= 0.6
+# Highest share of cases any single constant action can satisfy. Pooled is 37.5
+# percent but the ceiling is higher on the test split, so state each split.
+CONSTANT_CEILING = {'all': 18 / 48, 'test': 13 / 32, 'train': 5 / 16}
+
+
+def test_constant_policy_ceilings_per_split_and_pooled(cases):
+    pools = {'all': list(cases), 'test': [c for c in cases if c.split == 'test'],
+             'train': [c for c in cases if c.split == 'train']}
+    for name, pool in pools.items():
+        coverage = {a: sum(a in c.allowed_actions for c in pool) / len(pool)
+                    for a in ('apply', 'translate', 'abstain', 'escalate')}
+        assert max(coverage.values()) == pytest.approx(CONSTANT_CEILING[name]), name
+        for action, share in coverage.items():
+            constant = _score([(c, action) for c in pool])
+            assert constant['oracle_action_acceptance'] == pytest.approx(share)
+    assert CONSTANT_CEILING['test'] > CONSTANT_CEILING['all'] > CONSTANT_CEILING['train']
+
+
+def test_rubric_policy_is_self_consistent_and_constants_score_lower(cases):
+    # Self-consistency: the rubric policy reproduces the author labels by construction.
+    rubric = _score([(c, reference_oracle_policy(c)) for c in cases])
+    assert rubric['oracle_action_acceptance'] == 1.0
+    assert rubric['harmful_policy_action_count'] == 0
     always_apply = _score([(c, 'apply') for c in cases])
     assert always_apply['harmful_policy_action_count'] > 0
     assert always_apply['harmful_per_transfer'] > 0.5
     always_abstain = _score([(c, 'abstain') for c in cases])
     assert always_abstain['harmful_per_transfer'] is None
-    # Always-abstain misses every genuine transfer opportunity.
     positives = [c for c in cases if c.allowed_actions <= TRANSFER_ACTIONS]
     assert len(positives) == 24
     assert all(not (c.allowed_actions & {'abstain', 'escalate'}) for c in positives)
+    for split in ('test', 'train'):
+        pool = [c for c in cases if c.split == split]
+        best_constant = max(_score([(c, a) for c in pool])['oracle_action_acceptance']
+                            for a in ('apply', 'translate', 'abstain', 'escalate'))
+        assert best_constant < 0.5
+
+
+def _clone_signature(row):
+    d = dict(row['decision'])
+    d.pop('decision_id')
+    return json.dumps([d, row['target'], bool(row['forbidden_ids']), row['allowed_actions'],
+                       row['label_reason']], sort_keys=True)
+
+
+def test_known_cross_split_clones_are_exactly_two_smoke_pairs(rows):
+    groups: dict[str, list[dict]] = {}
+    for row in rows:
+        groups.setdefault(_clone_signature(row), []).append(row)
+    clones = {tuple(sorted(r['case_id'] for r in g)) for g in groups.values() if len(g) > 1}
+    # Inherited from the smoke file, which cannot be relabeled. Disclosed in the README.
+    assert clones == {('toy_001', 'train_001'), ('toy_003', 'train_002')}
+    smoke_ids = _smoke_ids()
+    for pair in clones:
+        assert set(pair) <= smoke_ids
+    # No new case duplicates any other case structurally.
+    for group in groups.values():
+        assert not (len(group) > 1 and any(r['case_id'] not in smoke_ids for r in group))
+
+
+def test_ambiguous_evidence_cases_are_three_with_two_accepting_escalate(rows):
+    ambiguous = {r['case_id']: set(r['allowed_actions']) for r in rows if r['category'] == 'ambiguous_evidence'}
+    assert set(ambiguous) == {'toy_005', 'ctl_train_11', 'ctl_test_17'}
+    assert ambiguous['toy_005'] == {'abstain'}  # verbatim smoke exception
+    assert ambiguous['ctl_train_11'] == ambiguous['ctl_test_17'] == {'abstain', 'escalate'}
+    assert sum('escalate' in a for a in ambiguous.values()) == 2
 
 
 def test_cli_runs_on_controlled_file_without_overwrite(tmp_path):
@@ -477,7 +552,37 @@ def test_readme_labels_fixture_synthetic_and_documents_run():
     assert 'synthetic_controlled_v1.jsonl' in text
     assert 'SYNTHETIC' in text and 'single-annotator' in text
     assert 'annotator_2' in text and 'evaluate_transferbench.py' in text
-    assert 'not' in text.lower() and 'real-agent' in text.lower()
+    assert 'real-agent' in text.lower()
+    top = '\n'.join(text.splitlines()[:12])
+    assert 'single annotator, not independently reviewed' in top
+    assert 'author-written labels' in top
+
+
+def test_readme_states_per_split_ceilings_clones_and_new_only_results():
+    text = (ROOT / 'benchmarks/transferbench/README.md').read_text(encoding='utf-8')
+    for needle in ('37.5', '40.6', '31.25', 'train_001', 'toy_001', 'train_002', 'toy_003',
+                   'new cases only', '0.30', '0.35', 'Deviations from protocol',
+                   'toy_005', 'ctl_train_11', 'ctl_test_17', 'tag_incompatible'):
+        assert needle in text, needle
+    assert 'No constant policy can be correct on more than 37.5 percent' not in text
+    assert 'independent allowed-action labels' not in text
+    assert 'is not independent evidence' not in text or 'author-written' in text
+
+
+def test_no_claim_that_labels_are_independent_in_code_or_docs():
+    for rel in ('src/decisionbound/transferbench.py', 'scripts/evaluate_transferbench.py',
+                'benchmarks/transferbench/README.md', 'site_docs/transferbench-runner.md'):
+        text = (ROOT / rel).read_text(encoding='utf-8').lower()
+        for phrase in ('independently authored', 'independent oracle label', 'independent allowed-action',
+                       'independently recorded', 'established independently', 'independent target context',
+                       'manually reviewed jsonl'):
+            assert phrase not in text, (rel, phrase)
+
+
+def test_runner_docs_describe_controlled_fixture():
+    text = (ROOT / 'site_docs/transferbench-runner.md').read_text(encoding='utf-8')
+    assert 'synthetic_controlled_v1.jsonl' in text and '48' in text
+    assert 'single-annotator' in text and 'SYNTHETIC' in text
 
 
 def test_public_manifest_lists_new_files_sorted():

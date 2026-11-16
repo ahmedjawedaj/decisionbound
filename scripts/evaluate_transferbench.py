@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Run a reproducible policy-oracle comparison on manually reviewed JSONL cases.
+"""Run a reproducible policy-oracle comparison on author-written JSONL labels.
+
+Labels are not produced by running the policy and are not independently reviewed.
 
 The output records only aggregate labels and source hashes, never raw decision
 statements, repository source or oracle justifications. Strictly no live LLMs.
