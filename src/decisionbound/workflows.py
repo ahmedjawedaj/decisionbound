@@ -1027,68 +1027,76 @@ class WorkflowSupervisor:
                     self.journal.block_uncontained(lease.workflow_id, lease.task.task_id, lease.generation)
 
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            while True:
-                while (not stop.is_set() and not abort.is_set() and len(pending) < max_workers and
-                       scheduled < max_dispatch and time.monotonic() - begin < max_wall_seconds):
-                    lease = self.journal.claim(workflow_id,
-                        worker_kinds={k.split(":", 1)[0] for k in self.workers},
-                        worker_routes=set(self.workers), lease_seconds=lease_seconds)
-                    if lease is None:
+            try:
+                while True:
+                    while (not stop.is_set() and not abort.is_set() and len(pending) < max_workers and
+                           scheduled < max_dispatch and time.monotonic() - begin < max_wall_seconds):
+                        lease = self.journal.claim(workflow_id,
+                            worker_kinds={k.split(":", 1)[0] for k in self.workers},
+                            worker_routes=set(self.workers), lease_seconds=lease_seconds)
+                        if lease is None:
+                            break
+                        control = ExecutionControl(workflow_id, lease.task.task_id, lease.attempt, lease.generation)
+                        pending[pool.submit(work, lease, control)] = (lease, control)
+                        scheduled += 1
+                    if not pending:
                         break
-                    control = ExecutionControl(workflow_id, lease.task.task_id, lease.attempt, lease.generation)
-                    pending[pool.submit(work, lease, control)] = (lease, control)
-                    scheduled += 1
-                if not pending:
-                    break
-                # Keep host-owned task leases alive while bounded worker calls
-                # are executing, and notice claims that were revoked. A process
-                # crash stops these renewals; the persisted journal decides
-                # which stages can safely retry.
-                done, _ = wait(pending, timeout=min(0.5, lease_seconds / 3),
-                               return_when=FIRST_COMPLETED)
-                for future in done:
-                    lease, control = pending.pop(future)
-                    try:
-                        state, receipt = future.result()
-                    except ContainmentFailure:
-                        quarantine_or_block(lease, "containment_failed")
-                    except WorkerOutputInvalid:
-                        quarantine_or_block(lease, "invalid_receipt")
-                    except Exception as exc:
+                    # Keep host-owned task leases alive while bounded worker calls
+                    # are executing, and notice claims that were revoked. A process
+                    # crash stops these renewals; the persisted journal decides
+                    # which stages can safely retry.
+                    done, _ = wait(pending, timeout=min(0.5, lease_seconds / 3),
+                                   return_when=FIRST_COMPLETED)
+                    for future in done:
+                        lease, control = pending.pop(future)
                         try:
-                            self.journal.fail(lease, exc)
-                        except WorkflowConflict:
-                            # Expired/cancelled lease: never overwrite a newer owner.
-                            if not (isinstance(exc, WorkerCancelled) and control.cancel.is_set()):
-                                self.journal.note_late_result(lease, "fail_rejected")
-                    else:
-                        try:
-                            self.journal.finish(lease, state=state, receipt=receipt, verifier=self.verifier)
-                        except (WorkflowConflict, ValueError) as exc:
-                            # Over-budget or malformed worker receipts are not
-                            # normal failures and must never enter retry logic.
-                            if not self.journal.claim_is_current(lease):
-                                self.journal.note_late_result(lease, "finish_rejected")
+                            state, receipt = future.result()
+                        except ContainmentFailure:
+                            quarantine_or_block(lease, "containment_failed")
+                        except WorkerOutputInvalid:
+                            quarantine_or_block(lease, "invalid_receipt")
+                        except Exception as exc:
                             try:
-                                self.journal.quarantine(lease, reason="over_budget" if receipt.cost_usd > lease.reserved_cost_usd else
-                                                        "invalid_receipt")
+                                self.journal.fail(lease, exc)
                             except WorkflowConflict:
-                                pass  # An expired or cancelled lease owns nothing.
-                now = time.monotonic()
-                if abort.is_set():
-                    for _, control in pending.values():
-                        control.request_cancel("leadership_lost")
-                if stop.is_set():
-                    stop_seen_at = now if stop_seen_at is None else stop_seen_at
-                    if now - stop_seen_at >= stop_grace_seconds:
+                                # Expired/cancelled lease: never overwrite a newer owner.
+                                if not (isinstance(exc, WorkerCancelled) and control.cancel.is_set()):
+                                    self.journal.note_late_result(lease, "fail_rejected")
+                        else:
+                            try:
+                                self.journal.finish(lease, state=state, receipt=receipt, verifier=self.verifier)
+                            except (WorkflowConflict, ValueError) as exc:
+                                # Over-budget or malformed worker receipts are not
+                                # normal failures and must never enter retry logic.
+                                if not self.journal.claim_is_current(lease):
+                                    self.journal.note_late_result(lease, "finish_rejected")
+                                try:
+                                    self.journal.quarantine(lease, reason="over_budget" if receipt.cost_usd > lease.reserved_cost_usd else
+                                                            "invalid_receipt")
+                                except WorkflowConflict:
+                                    pass  # An expired or cancelled lease owns nothing.
+                    now = time.monotonic()
+                    if abort.is_set():
                         for _, control in pending.values():
-                            control.request_cancel("stop_grace_expired")
-                for outstanding_lease, control in pending.values():
-                    try:
-                        self.journal.heartbeat(outstanding_lease, lease_seconds=lease_seconds)
-                    except WorkflowConflict:
-                        # A cancelled/replaced claim cannot be renewed; its
-                        # late result will also fail owner/generation fencing.
-                        control.request_cancel("claim_revoked")
+                            control.request_cancel("leadership_lost")
+                    if stop.is_set():
+                        stop_seen_at = now if stop_seen_at is None else stop_seen_at
+                        if now - stop_seen_at >= stop_grace_seconds:
+                            for _, control in pending.values():
+                                control.request_cancel("stop_grace_expired")
+                    for outstanding_lease, control in pending.values():
+                        try:
+                            self.journal.heartbeat(outstanding_lease, lease_seconds=lease_seconds)
+                        except WorkflowConflict:
+                            # A cancelled/replaced claim cannot be renewed; its
+                            # late result will also fail owner/generation fencing.
+                            control.request_cancel("claim_revoked")
+            except BaseException:
+                # A host-side error (locked database, interrupt) must never leave
+                # contained workers running without heartbeats: cancel them so the
+                # pool shutdown below cannot wait out a long deadline.
+                for _, control in pending.values():
+                    control.request_cancel("supervisor_error")
+                raise
 
         return self.journal.reconcile(workflow_id)

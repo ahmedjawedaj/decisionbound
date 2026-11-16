@@ -7,7 +7,7 @@ pidfile written by the child itself, so there are no fixed sleeps.
 
 Only the Linux branches of the oracle and of the OS specific assertions were
 executed when this file was written. The Windows and macOS branches are written
-from the platform documentation and are covered by the CI matrix, not here.
+from the platform documentation and are not yet verified by any run.
 """
 from __future__ import annotations
 
@@ -826,3 +826,78 @@ def test_stop_grace_setting_is_bounded():
     for bad in (-1, 301, True, 1.5):
         with pytest.raises(ValueError):
             CoordinatorSettings(worker_stop_grace_seconds=bad)
+
+
+# ---------------------------------------------------------------------------
+# Review round: findings 1, 2, 6 and 9 of the independent review
+# ---------------------------------------------------------------------------
+def test_a_supervisor_error_cancels_running_workers_instead_of_waiting_out_the_deadline(env, monkeypatch):
+    pidfile = env.tmp / "tree.json"
+    wid = make_workflow(env)
+    worker = contained(env, TREE_CHILD, pidfile, deadline=120)
+    calls = {"n": 0}
+    real = env.journal.heartbeat
+
+    def flaky(lease, **kwargs):
+        calls["n"] += 1
+        if calls["n"] >= 3 and pidfile.exists():
+            raise RuntimeError("simulated host error during heartbeat")
+        return real(lease, **kwargs)
+
+    monkeypatch.setattr(env.journal, "heartbeat", flaky)
+    started = time.monotonic()
+    with pytest.raises(RuntimeError, match="simulated host error"):
+        supervise(env, {"mock": worker}, wid, lease_seconds=30)
+    assert time.monotonic() - started < 25, "run() waited for the worker deadline"
+    info = wait_for_pidfile(pidfile, timeout=1)
+    env.tracked.extend([info["child"], info["grandchild"]])
+    assert wait_dead([info["child"], info["grandchild"]], timeout=10) == []
+
+
+@pytest.mark.parametrize("raw", [
+    b'{"status":"prepared","cost_usd":' + b"9" * 400 + b"}",
+    b"[" * 50000,
+    b'{"status":"blocked","status":"mock_passed"}',
+    b'{"status":"prepared","cost_usd":1e999}',
+    b"\xff\xfe",
+])
+def test_malformed_receipts_are_always_invalid_output_never_a_retryable_error(raw):
+    with pytest.raises(C.WorkerOutputInvalid):
+        C._parse_receipt(raw)
+
+
+def test_a_huge_integer_cost_is_quarantined_not_retried(env):
+    wid = make_workflow(env, attempts=3)
+    script = ('import json,sys\nsys.stdin.read()\n'
+              'sys.stdout.write(\'{"status":"mock_passed","cost_usd":\' + "9"*400 + "}\\n")\n')
+    supervise(env, {"mock": contained(env, script)}, wid)
+    entry = task_state(env, wid)
+    assert entry["state"] == "blocked" and entry["error_type"] == "invalid_receipt"
+    assert len(rows(env.store)) == 1, "a malformed receipt must not be retried"
+
+
+@pytest.mark.skipif(IS_WINDOWS, reason="POSIX signalling guard")
+@pytest.mark.parametrize("which", ["self", "pgid_differs", "init"])
+def test_reaper_never_signals_group_ids_it_did_not_start(env, which):
+    bystander = spawn_bystander()
+    env.tracked.append(bystander.pid)
+    target = {"self": os.getpid(), "pgid_differs": bystander.pid, "init": 1}[which]
+    cid = env.registry.record_intent(workflow_id="wf_manual", task_id="stage", attempt=1, generation=1,
+                                     level="posix_session", argv_sha256="0" * 64,
+                                     owner=dead_owner(), leader_generation=1)
+    pgid = bystander.pid + 1 if which == "pgid_differs" else target
+    env.registry.record_started(cid, pid=target, pgid=pgid, identity=C.process_identity(target) or
+                                C.ProcessIdentity(target, "x"))
+    report = reaper(env).reap(leader_generation=2)
+    assert report["identity_mismatch"] == 1
+    assert pid_alive(bystander.pid) and pid_alive(os.getpid())
+    assert [r["state"] for r in rows(env.store)] == ["identity_mismatch"]
+    bystander.kill()
+    bystander.wait()
+
+
+def test_recording_intent_refuses_when_the_own_identity_cannot_be_read(env, monkeypatch):
+    monkeypatch.setattr(C, "process_identity", lambda pid: None)
+    with pytest.raises(C.ContainmentFailure):
+        env.registry.record_intent(workflow_id="wf_manual", task_id="stage", attempt=1, generation=1,
+                                   level="posix_session", argv_sha256="0" * 64)

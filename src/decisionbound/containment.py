@@ -13,8 +13,8 @@ network, credential or syscall isolation. Use the Docker coding sandbox for
 that. See ``site_docs/worker-containment.md`` for the full list.
 
 Only the Linux code paths of this module were executed by its authors. The
-macOS and Windows paths follow the platform documentation and are verified by
-the CI matrix, not by this file.
+macOS and Windows paths follow the platform documentation and have not been
+verified. A passing CI matrix would be the first evidence, not this file.
 """
 from __future__ import annotations
 
@@ -290,6 +290,13 @@ def _signal_group(pgid: int, sig: int) -> bool:
         os.killpg(pgid, sig)
     except ProcessLookupError:
         return False
+    except PermissionError:
+        # macOS returns EPERM for a group that holds only zombies. On Linux an
+        # EPERM is a real error and must surface (the reaper maps it to
+        # ``unconfirmed``).
+        if sys.platform.startswith("linux"):
+            raise
+        return False
     return True
 
 
@@ -338,7 +345,8 @@ def probe_capabilities() -> ContainmentCapabilities:
         except OSError:
             return ContainmentCapabilities("windows_tree_best_effort", frozenset())
         job.close()
-        return ContainmentCapabilities("windows_job", frozenset(_LIMIT_NAMES) | {"max_output_bytes"})
+        return ContainmentCapabilities(
+            "windows_job", (frozenset(_LIMIT_NAMES) - {"max_open_files"}) | {"max_output_bytes"})
     enforced = {"max_cpu_seconds", "max_open_files", "max_output_bytes"}
     if sys.platform.startswith("linux"):
         enforced.add("max_memory_mib")
@@ -388,7 +396,8 @@ class _WindowsJob:
         flags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
         if limits.max_processes:
             flags |= 0x8  # ACTIVE_PROCESS
-            info.BasicLimitInformation.ActiveProcessLimit = limits.max_processes
+            # +1: the launcher shim stays alive as the worker's parent and counts too.
+            info.BasicLimitInformation.ActiveProcessLimit = limits.max_processes + 1
         if limits.max_cpu_seconds:
             flags |= 0x4  # JOB_TIME, in 100 ns units
             info.BasicLimitInformation.PerJobUserTimeLimit = limits.max_cpu_seconds * 10_000_000
@@ -734,7 +743,9 @@ class ProcessRegistry:
             self._ensure()
         if owner is None:
             mine = process_identity(os.getpid())
-            owner = ProcessIdentity(os.getpid(), mine.start_token if mine else "")
+            if mine is None:
+                raise ContainmentFailure("Cannot read this process's identity, so orphans could not be told apart")
+            owner = mine
         cid = "cp_" + uuid.uuid4().hex
         with self.store._connection() as db:
             db.execute("""INSERT INTO contained_processes(containment_id,workflow_id,task_id,attempt,generation,
@@ -818,6 +829,9 @@ class OrphanReaper:
         """Decide and carry out the action for one orphan row, then return its new state."""
         if row["pid"] is None:
             return "unconfirmed"  # crashed between intent and spawn record: cannot know
+        if not _IS_NT and (type(row["pid"]) is not int or type(row["pgid"]) is not int or row["pid"] <= 1 or
+                           row["pgid"] != row["pid"] or row["pid"] == os.getpid() or row["pgid"] == os.getpgrp()):
+            return "identity_mismatch"  # never signal a group we did not start; a stored row is not trusted
         live = process_identity(row["pid"])
         if live is None:
             if _IS_NT:
@@ -860,19 +874,31 @@ _ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
 _RECEIPT_KEYS = frozenset({"status", "evidence_sha256", "repair_session_id", "nested_run_id", "cost_usd"})
 
 
+def _reject_duplicate_keys(pairs: list) -> dict:
+    keys = [k for k, _ in pairs]
+    if len(keys) != len(set(keys)):
+        raise ValueError("duplicate key")
+    return dict(pairs)
+
+
 def _parse_receipt(raw: bytes) -> WorkerReceipt:
     """Parse the worker's single JSON receipt line strictly. Never echo the content."""
     try:
-        lines = [x for x in raw.decode("utf-8").splitlines() if x.strip()]
-        value = json.loads(lines[0]) if len(lines) == 1 else None
-    except (UnicodeDecodeError, ValueError):
-        value = None
+        return _parse_receipt_unchecked(raw)
+    except (UnicodeDecodeError, ValueError, TypeError, RecursionError, OverflowError, MemoryError):
+        raise WorkerOutputInvalid("Worker did not return exactly one valid receipt line") from None
+
+
+def _parse_receipt_unchecked(raw: bytes) -> WorkerReceipt:
+    lines = [x for x in raw.decode("utf-8").splitlines() if x.strip()]
+    value = json.loads(lines[0], object_pairs_hook=_reject_duplicate_keys) if len(lines) == 1 else None
     if not isinstance(value, dict) or not value.keys() <= _RECEIPT_KEYS or not isinstance(value.get("status"), str):
         raise WorkerOutputInvalid("Worker did not return exactly one valid receipt line")
     cost = value.get("cost_usd", 0.0)
     texts = [value.get(k, "") for k in ("status", "evidence_sha256", "repair_session_id", "nested_run_id")]
     if (not 1 <= len(value["status"]) <= 64 or any(not isinstance(t, str) or len(t) > 128 for t in texts) or
-            isinstance(cost, bool) or not isinstance(cost, (int, float)) or not math.isfinite(cost) or cost < 0):
+            isinstance(cost, bool) or not isinstance(cost, (int, float)) or
+            (isinstance(cost, int) and not 0 <= cost <= 10**9) or not math.isfinite(cost) or cost < 0):
         raise WorkerOutputInvalid("Worker receipt had invalid field values")
     return WorkerReceipt(status=value["status"], evidence_sha256=value.get("evidence_sha256", ""),
                          repair_session_id=value.get("repair_session_id", ""),

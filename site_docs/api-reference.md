@@ -3029,8 +3029,8 @@ network, credential or syscall isolation. Use the Docker coding sandbox for
 that. See ``site_docs/worker-containment.md`` for the full list.
 
 Only the Linux code paths of this module were executed by its authors. The
-macOS and Windows paths follow the platform documentation and are verified by
-the CI matrix, not by this file.
+macOS and Windows paths follow the platform documentation and have not been
+verified. A passing CI matrix would be the first evidence, not this file.
 
 ### `ContainmentError`
 

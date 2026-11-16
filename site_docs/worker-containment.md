@@ -4,7 +4,7 @@
 
 **Status:** implemented and tested with real child and grandchild processes on **Linux only**. The Windows job object path and the macOS identity path were written from platform documentation and have not been executed by the authors. Gate G17 stays open until the CI matrix, a Docker gate and an external security review report results.
 
-**Claim limit:** hard deadline and tree termination for contained workers on Linux, macOS and Windows job objects, with the documented escapes below. This is not a security sandbox.
+**Claim limit:** hard deadline and tree termination for contained workers on Linux, with the documented escapes below. macOS and Windows make no claim until CI results exist. This is not a security sandbox.
 
 ## What you get
 
@@ -29,7 +29,7 @@ import sys
 from decisionbound.containment import ContainedWorker, ProcessRegistry, ResourceLimits
 
 worker = ContainedWorker(
-    [sys.executable, "-I", "worker.py"],       # fixed argv chosen by the operator
+    [sys.executable, "-I", "/opt/tools/worker.py"],  # fixed argv chosen by the operator, use an absolute path
     registry=ProcessRegistry(store),
     deadline_seconds=300,
     term_grace_seconds=3,
@@ -39,7 +39,7 @@ worker = ContainedWorker(
 supervisor = WorkflowSupervisor(journal, workers={"inspect": worker})
 ```
 
-The argv you choose decides what the child can do. DecisionBound does not grant write, model or network permission to a contained worker.
+The child runs with the project as its working directory, so a relative script path would load code from the project. Always use an absolute path. The argv you choose decides what the child can do. DecisionBound does not grant write, model or network permission to a contained worker.
 
 ## Worker protocol
 
@@ -111,6 +111,14 @@ The reaper never changes task state except to block an unconfirmed task. The jou
 - There is no lifeline pipe or subreaper. After a coordinator `SIGKILL` on POSIX, workers run until the next coordinator reaps them.
 - A crash between spawn and the pid record can leave an unrecorded process on POSIX. Windows is covered by job close.
 - Existing in-process workers (`PreparationWorker`, `CodingRepairWorker`) were not converted. They are still not killable.
+- A descendant that escapes the group and keeps the worker's stdout open is not detected. The run can finish while that process lives on.
+- `RLIMIT_CPU` and `RLIMIT_AS` apply per process, not to the whole tree.
+- A `WorkflowSupervisor` used without the coordinator never reaps orphans. Call `dbound workflow reap-orphans` or run the coordinator.
+- On hosts without `ps`-grade start times (the macOS `ps` fallback) the identity token has one second resolution.
+- The registry table is never pruned.
+- Cancelling a worker discards its receipt. A cancel induced `WorkerCancelled` does not emit a `late_result_rejected` event.
+- A supervisor error cancels running workers, which are then killed. The lease must exceed the SQLite busy timeout, otherwise a blocked heartbeat can cost a worker its lease.
+- A host that ignores `SIGCHLD` is unsupported.
 - There is no distributed fencing. This is one machine and one SQLite database.
 
 See also [Durable background service](durable-service.md), [Security](security.md) and [Production readiness](production-readiness.md).
