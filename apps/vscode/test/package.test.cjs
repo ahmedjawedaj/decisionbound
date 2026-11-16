@@ -25,3 +25,12 @@ test('real host smoke harness is deliberately separate from mock host tests', ()
   assert.ok(fs.existsSync(path.join(root,'test/host/smoke.cjs')));
   assert.ok(manifest.scripts['test:host'].includes('host/runner'));
 });
+
+test('VSIX ignore rules keep dependencies, host downloads and old builds out of the package', () => {
+  const rules = fs.readFileSync(path.join(root, '.vscodeignore'), 'utf8').split(/\r?\n/).map(s => s.trim());
+  for (const needed of ['node_modules/**', '.vscode-test/**', 'dist/**', 'test/**']) {
+    assert.ok(rules.includes(needed), '.vscodeignore must list ' + needed);
+  }
+  assert.equal(Object.keys(manifest.dependencies || {}).length, 0,
+    'the extension must stay dependency free, so nothing from node_modules needs to ship');
+});

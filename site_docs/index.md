@@ -9,11 +9,14 @@
 ## Start without API keys
 
 ```bash
-python -m pip install -e '.[test,web,docs]'
-cd /path/to/source
-dbound init --technologies python
-dbound agent demo 'refund' --path .
+git clone https://github.com/ahmedjawedaj/decisionbound.git
+cd decisionbound
+python -m venv .venv && source .venv/bin/activate
+python -m pip install .
+dbound --help
 ```
+
+Then follow the [quickstart](getting-started.md): a 60-second, offline demo of recording a decision, approving it and seeing how three repositories may reuse it. Its output is checked by a test on every change.
 
 ## New in durable local workflows
 
@@ -33,6 +36,10 @@ Build a bounded dependency graph, attach role-specific workers, and inspect veri
 ## Documentation paths
 
 [Quickstart](getting-started.md) · [Agent execution](agent-execution.md) · [MCP integration](mcp-integration.md) · [Verification](verification.md) · [Python SDK](sdk.md) · [API reference](api-reference.md) · [Security](security.md) · [Research](research.md).
+
+## Evidence so far
+
+On the real-repository benchmark, [CarryBench](https://github.com/ahmedjawedaj/decisionbound/blob/main/benchmarks/carrybench/README.md), the shipped transfer policy does not beat simple baselines, and its labels come from LLM annotators with no human labelling. Read the results before relying on any claim.
 
 ## Scientific contribution under test
 
@@ -60,4 +67,4 @@ End users can now use `dbound setup` and `dbound doctor` to select safe default/
 
 ## installed-host certification
 
-A [real installed-wheel certification](host-certification.md) checks Linux CLI setup, workflow persistence, state isolation, and the authenticated Node client against a real Uvicorn server. GitHub Actions is configured to execute the same script on Windows, Linux, and macOS, and to launch VS Code on hosted Windows/Linux runners. Those remote results remain pending until a DecisionBound repository is available.
+A [real installed-wheel certification](host-certification.md) checks Linux CLI setup, workflow persistence, state isolation, and the authenticated Node client against a real Uvicorn server. GitHub Actions is configured to execute the same script on Windows, Linux, and macOS, and to launch VS Code on hosted Windows/Linux runners. Read the [Actions results](https://github.com/ahmedjawedaj/decisionbound/actions) for the exact commit you use. A passing run is not assumed.

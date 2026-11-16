@@ -42,6 +42,8 @@ _IS_NT = os.name == "nt"
 _STRONG_LEVELS = frozenset({"posix_session", "windows_job"})
 _LIMIT_NAMES = ("max_cpu_seconds", "max_memory_mib", "max_open_files", "max_processes")
 _CONFIRM_SECONDS = 5.0
+_JOB_NAME_PREFIX = "Local\\dbound-"
+_CONTAINMENT_ID = re.compile(r"[A-Za-z0-9_]{1,64}")
 _POLL_SECONDS = 0.02
 
 
@@ -375,6 +377,11 @@ def probe_capabilities() -> ContainmentCapabilities:
     return ContainmentCapabilities("posix_session", frozenset(enforced))
 
 
+def _job_name(containment_id: str) -> str:
+    """Name of the job object for one contained worker, in the session-local namespace."""
+    return _JOB_NAME_PREFIX + containment_id
+
+
 class _WindowsJob:
     """Windows job object with kill-on-close, created through ctypes.
 
@@ -431,6 +438,29 @@ class _WindowsJob:
             error = ctypes.WinError(ctypes.get_last_error())
             kernel.CloseHandle(handle)
             raise error
+        return cls(handle, kernel)
+
+    @classmethod
+    def open_existing(cls, name: str) -> "_WindowsJob | None":
+        """Open a live job by name with query and terminate rights only.
+
+        Returns None when no job has that name, which with kill-on-close means
+        its last handle closed and every member was killed. Raises OSError for
+        any other failure. Written from the ``OpenJobObjectW`` documentation:
+        the shape is unit tested against a fake kernel32, but it has not been
+        run on Windows by its author.
+        """
+        import ctypes
+        from ctypes import wintypes
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.OpenJobObjectW.restype = wintypes.HANDLE
+        kernel.OpenJobObjectW.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.LPCWSTR]
+        handle = kernel.OpenJobObjectW(0x0004 | 0x0008, False, name)  # JOB_OBJECT_QUERY | JOB_OBJECT_TERMINATE
+        if not handle:
+            code = ctypes.get_last_error()
+            if code == 2:  # ERROR_FILE_NOT_FOUND
+                return None
+            raise OSError(code, "OpenJobObjectW failed")
         return cls(handle, kernel)
 
     def assign(self, process_handle: int) -> None:
@@ -517,7 +547,7 @@ class ContainedProcess:
         if not _IS_NT:
             return cls(subprocess.Popen(command, start_new_session=True, **pipes),
                        level="posix_session", job=None)
-        name = f"Local\\dbound-{containment_id or uuid.uuid4().hex}"
+        name = _job_name(containment_id or uuid.uuid4().hex)
         create_flags = 0x00000200 | 0x08000000  # CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW
         job: _WindowsJob | None
         try:
@@ -847,6 +877,56 @@ class OrphanReaper:
                 pass  # evidence is best effort, the row state above is authoritative
         return report
 
+    def _examine_windows(self, row: dict) -> str:
+        """Windows orphan: end the job object when one exists, else fall back to the process id.
+
+        A process whose start token does not match the stored one is never touched, with or
+        without a job, because the process id was reused. For a ``windows_job`` row whose
+        job can still be opened by name, the job settles the row, not the leader: the
+        leader may be gone while descendants live on inside the job, so ``terminated`` is
+        returned only after the job reports no active processes. The name is built from
+        the stored containment id only after it matches a plain token, so a tampered row
+        cannot name another object. When no job can be opened (none exists, or the lookup
+        failed) the earlier behavior applies unchanged: a gone leader is ``gone`` for
+        ``windows_job`` rows and ``unconfirmed`` for weaker levels, and a live leader with
+        a matching token is stopped with ``taskkill /T``, which cannot see descendants that
+        left the tree. A failed job lookup with no live leader stays ``unconfirmed``.
+
+        Unit tested with fakes on every OS. The job lookup itself is unverified on a real
+        Windows host.
+        """
+        live = process_identity(row["pid"])
+        if live is not None and live.start_token != row["start_token"]:
+            return "identity_mismatch"
+        lookup_failed = False
+        if row["level"] == "windows_job":
+            cid = row["containment_id"]
+            if not isinstance(cid, str) or _CONTAINMENT_ID.fullmatch(cid) is None:
+                return "identity_mismatch"
+            try:
+                job = _WindowsJob.open_existing(_job_name(cid))
+            except OSError:
+                job, lookup_failed = None, True
+            if job is not None:
+                try:
+                    job.terminate()
+                    end = time.monotonic() + _CONFIRM_SECONDS
+                    while job.active_processes() > 0:
+                        if time.monotonic() > end:
+                            return "unconfirmed"
+                        time.sleep(_POLL_SECONDS)
+                    return "terminated"
+                finally:
+                    job.close()
+        if live is None:
+            # A failed lookup cannot show that no job survives, so it is never "gone".
+            return "gone" if row["level"] == "windows_job" and not lookup_failed else "unconfirmed"
+        subprocess.run(["taskkill", "/PID", str(row["pid"]), "/T", "/F"], capture_output=True)
+        end = time.monotonic() + _CONFIRM_SECONDS
+        while process_identity(row["pid"]) is not None and time.monotonic() < end:
+            time.sleep(_POLL_SECONDS)
+        return "unconfirmed" if process_identity(row["pid"]) is not None else "terminated"
+
     def _examine(self, row: dict) -> str:
         """Decide and carry out the action for one orphan row, then return its new state."""
         if row["pid"] is None:
@@ -854,19 +934,13 @@ class OrphanReaper:
         if not _IS_NT and (type(row["pid"]) is not int or type(row["pgid"]) is not int or row["pid"] <= 1 or
                            row["pgid"] != row["pid"] or row["pid"] == os.getpid() or row["pgid"] == os.getpgrp()):
             return "identity_mismatch"  # never signal a group we did not start; a stored row is not trusted
+        if _IS_NT:
+            return self._examine_windows(row)
         live = process_identity(row["pid"])
         if live is None:
-            if _IS_NT:
-                return "gone" if row["level"] == "windows_job" else "unconfirmed"
             return "unconfirmed" if _group_alive(row["pgid"], leader_reaped=True) else "gone"
         if live.start_token != row["start_token"]:
             return "identity_mismatch"
-        if _IS_NT:
-            subprocess.run(["taskkill", "/PID", str(row["pid"]), "/T", "/F"], capture_output=True)
-            end = time.monotonic() + _CONFIRM_SECONDS
-            while process_identity(row["pid"]) is not None and time.monotonic() < end:
-                time.sleep(_POLL_SECONDS)
-            return "unconfirmed" if process_identity(row["pid"]) is not None else "terminated"
         try:
             if os.getpgid(row["pid"]) != row["pgid"]:
                 return "identity_mismatch"

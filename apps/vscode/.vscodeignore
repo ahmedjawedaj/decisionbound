@@ -1,3 +1,6 @@
 test/**
 *.log
 README.md
+node_modules/**
+.vscode-test/**
+dist/**

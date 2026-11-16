@@ -32,7 +32,7 @@ The certification script uses Python's `subprocess`, `tempfile`, and `pathlib` r
 
 `.github/workflows/platform-certification.yml` defines a GitHub Actions matrix of Ubuntu, Windows and macOS on Python 3.11 and 3.13. Every job builds and installs the wheel, runs the real CLI setup and workflow smoke, then connects Node to Uvicorn. Independent Ubuntu and Windows jobs download VS Code through `@vscode/test-electron`, launch the Extension Development Host, exercise command registration and activation, and package a reviewable VSIX using `@vscode/vsce`.
 
-These hosted jobs require the source to be pushed to a repository with Actions enabled. **The local project has no configured DecisionBound GitHub repository and none of the matrix jobs has been run yet.** Do not mistake a green local mock-host test for a real VS Code launch.
+These hosted jobs require a repository with Actions enabled. The matrix has run: GitHub Actions run 43948004993 on `main` (commit `cbf6368`) completed successfully, covering the installed wheel on Ubuntu, Windows and macOS and the real VS Code host on Ubuntu and Windows. Do not mistake a green local mock-host test for a real VS Code launch.
 
 For manual VS Code testing, open an initialized fixture repository, run `dbound serve`, obtain the private pairing token through `dbound client pair --show-token`, and install the CI-produced VSIX through **Extensions → Install from VSIX**. Run **DecisionBound: Pair Local Runtime**, **Check Local Setup**, and **Refresh Sessions**; verify SecretStorage, workspace trust and event replay. Never commit the token or allow the extension to write patches.
 
@@ -41,9 +41,9 @@ For manual VS Code testing, open an initialized fixture repository, run `dbound 
 | Certification | Local status | Required externally |
 |---|---|---|
 | Installed Linux CLI/setup/prepare | Passed with preinstalled dependencies | Fresh dependency install in CI |
-| Real Node→Uvicorn→SQLite | Passed on Linux | Windows/macOS hosted runs |
-| VS Code mock-host contract | Passed | Real Extension Development Host |
-| VSIX official packaging | Not tested (tool unavailable) | `@vscode/vsce` CI output/install |
+| Real Node→Uvicorn→SQLite | Passed on Linux | Windows/macOS: passed in hosted run 43948004993 |
+| VS Code mock-host contract | Passed | Real Extension Development Host: passed in hosted run 43948004993 |
+| VSIX official packaging | Not tested locally (tool unavailable) | `@vscode/vsce` CI output: built in hosted run 43948004993 |
 | Real Docker isolation | Not tested (no daemon) | Docker-enabled CI |
 | MCP v2 official protocol | Not tested locally | SDK-enabled CI |
 | Live Claude/Codex / model provider | Not tested | Operator-authenticated execution |
