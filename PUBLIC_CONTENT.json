@@ -85,6 +85,8 @@
     "benchmarks/carrybench/real_v2_holdout/curation_v2_holdout.json",
     "benchmarks/carrybench/real_v2_holdout/excluded_v2_holdout.jsonl",
     "benchmarks/carrybench/real_v2_holdout/pins.csv",
+    "benchmarks/carrybench/real_v2_holdout/results/baselines_v2_holdout.json",
+    "benchmarks/carrybench/real_v2_holdout/results/decisionbound_v2_holdout.json",
     "benchmarks/carrybench/real_v2_holdout/selection_log_DO_NOT_SHOW_ANNOTATORS.jsonl",
     "benchmarks/carrybench/real_v2_holdout/selection_shortlist_DO_NOT_SHOW_ANNOTATORS.jsonl",
     "benchmarks/carrybench/real_v2_holdout/tools/assemble_cases.py",
