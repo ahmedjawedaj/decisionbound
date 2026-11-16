@@ -386,7 +386,7 @@ Some integrations require opt-in prerequisites. A skipped test is not a pass, mo
 
 ## Evaluation and roadmap
 
-[`benchmarks/transferbench/`](benchmarks/transferbench/) contains synthetic fixtures and a deterministic policy-oracle runner. It compares fixed transfer policies against handcrafted action labels. It does not execute software tasks through an LLM, measure real provider cost, or establish generalization to production repositories. See the [evaluation guide](https://ahmedjawedaj.github.io/decisionbound/transferbench-runner.html).
+[`benchmarks/transferbench/`](benchmarks/transferbench/) (public name: CarryBench, synthetic tier) contains synthetic fixtures and a deterministic policy-oracle runner. It compares fixed transfer policies against handcrafted action labels. It does not execute software tasks through an LLM, measure real provider cost, or establish generalization to production repositories. See the [evaluation guide](https://ahmedjawedaj.github.io/decisionbound/transferbench-runner.html).
 
 The public [roadmap](ROADMAP.md) prioritizes independently verified worker isolation and cancellation, platform correctness, security review, resource measurement and reproducible packaging. Distributed coordination, multi-host recovery and sustained fleet operation remain future work. No delivery date or comparative performance advantage is promised.
 

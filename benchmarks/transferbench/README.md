@@ -1,4 +1,6 @@
-# TransferBench
+# CarryBench (synthetic tier)
+
+Naming note: this benchmark is publicly called **CarryBench**. The name TransferBench is already used by an unrelated NeurIPS 2025 benchmark, so it is retired as a public name. The directory, schema ids (`transferbench-case-v1`) and Python module (`decisionbound.transferbench`) keep the old spelling for now so that existing fixtures and scripts do not break. They will be renamed together with the first real case set. CarryBench is a working name and a final name check is still to be done.
 
 **Status: single annotator, not independently reviewed.** All labels are
 author-written labels, not produced by running the policy, and no second
