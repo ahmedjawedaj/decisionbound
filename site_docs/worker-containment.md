@@ -2,7 +2,7 @@
 
 `ContainedWorker` runs a task in a real child process that DecisionBound can kill, together with everything the child started. It gives hard deadlines, cancellation that works across processes, and cleanup after a coordinator crash.
 
-**Status:** implemented and tested with real child and grandchild processes. The containment tests pass in CI on Linux, macOS and Windows (Python 3.11 to 3.13), which was the first run of the Windows job object and macOS identity paths. Review findings that remain open for Windows are listed under "What is not guaranteed". Gate G17 stays open until the CI matrix, a Docker gate and an external security review report results.
+**Status:** implemented and tested with real child and grandchild processes. The containment tests pass in CI on Linux, macOS and Windows (Python 3.11 to 3.13), which was the first run of the Windows job object and macOS identity paths. The Windows reaper job check added afterwards is unit tested with fakes only. Review findings that remain open for Windows are listed under "What is not guaranteed". Gate G17 stays open until the CI matrix, a Docker gate and an external security review report results.
 
 **Claim limit:** hard deadline and tree termination for contained workers, tested in CI on Linux, macOS and Windows, with the documented escapes below. This is not a security sandbox.
 
@@ -68,9 +68,9 @@ A worker that returns after its claim was lost cannot finish the task, because `
 
 ## Process model per operating system
 
-**POSIX (Linux executed, macOS not executed).** Every spawn goes through a small stdlib-only launcher that applies resource limits and then `exec`s your argv in a new session. This avoids `preexec_fn`, which is unsafe in a threaded coordinator. Termination is `SIGTERM` to the process group, a grace period, then `SIGKILL`, then confirmation that no live process remains in the group. The worker's exit is observed without reaping it, so the group is killed before the process id can be recycled. Where `os.waitid` is missing (macOS), the leader is reaped first, which leaves a tiny recycling window.
+**POSIX (Linux and macOS executed in CI).** Every spawn goes through a small stdlib-only launcher that applies resource limits and then `exec`s your argv in a new session. This avoids `preexec_fn`, which is unsafe in a threaded coordinator. Termination is `SIGTERM` to the process group, a grace period, then `SIGKILL`, then confirmation that no live process remains in the group. The worker's exit is observed without reaping it, so the group is killed before the process id can be recycled. Where `os.waitid` is missing (macOS), the leader is reaped first, which leaves a tiny recycling window.
 
-**Windows (not executed).** A job object named `Local\dbound-<id>` with kill-on-close. The launcher waits on a one byte gate on stdin while the parent assigns it to the job, so no descendant is born outside the job. Termination is `TerminateJobObject`, which has no graceful phase. If a job cannot be created or assigned, the fallback is `taskkill /PID /T /F`, reported as `windows_tree_best_effort`. That fallback misses re-parented descendants, so it is refused for `code` tasks and whenever `require_strong` is true.
+**Windows (executed in CI, except the new reaper job check).** A job object named `Local\dbound-<id>` with kill-on-close. The launcher waits on a one byte gate on stdin while the parent assigns it to the job, so no descendant is born outside the job. Termination is `TerminateJobObject`, which has no graceful phase. If a job cannot be created or assigned, the fallback is `taskkill /PID /T /F`, reported as `windows_tree_best_effort`. That fallback misses re-parented descendants, so it is refused for `code` tasks and whenever `require_strong` is true.
 
 ## Resource limits
 
@@ -99,6 +99,8 @@ When a coordinator acquires leadership it runs the reaper before its first dispa
 | Leader gone, group empty | Nothing to do | `gone` |
 | Leader gone, group still alive (POSIX) | Send no signal, block the task | `unconfirmed` |
 | Crash between intent and spawn | Block the task | `unconfirmed` |
+| Windows `windows_job` row, job still exists | Terminate the job, confirm it is empty | `terminated`, or `unconfirmed` if it never empties |
+| Windows `windows_job` row, no job of that name | Nothing to do (kill-on-close ran) | `gone` |
 
 The reaper never changes task state except to block an unconfirmed task. The journal stays the only authority. You can run it by hand with `dbound workflow reap-orphans`, which takes the coordinator lease so it cannot race a running coordinator.
 
@@ -111,7 +113,7 @@ The reaper never changes task state except to block an unconfirmed task. The jou
 - There is no lifeline pipe or subreaper. After a coordinator `SIGKILL` on POSIX, workers run until the next coordinator reaps them.
 - A crash between spawn and the pid record can leave an unrecorded process on POSIX. Windows is covered by job close.
 - Existing in-process workers (`PreparationWorker`, `CodingRepairWorker`) were not converted. They are still not killable.
-- On Windows, the orphan reaper kills by process id with `taskkill` and does not check the job object, so a descendant that left the tree can survive a row marked clean.
+- On Windows, a `windows_job` orphan row is now settled through the named job object (open by name, terminate, mark `terminated` only when the job reports no active processes). The decision logic and the `OpenJobObjectW` call shape are unit tested with fakes on every OS. The real Windows execution of that new check is **unverified** until a windows-latest run reports `test_open_job_object_on_a_real_windows_host`. Rows at `windows_tree_best_effort` still use `taskkill` by process id, which misses descendants that left the tree.
 - On Windows, the CPU time limit and memory limit are enforced by the job object, but there is no open file limit.
 - A descendant that escapes the group and keeps the worker's stdout open is not detected. The run can finish while that process lives on.
 - `RLIMIT_CPU` and `RLIMIT_AS` apply per process, not to the whole tree.

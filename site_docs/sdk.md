@@ -37,7 +37,7 @@ class TeamVetoPolicy(TransferPolicy):
         )
 ```
 
-The source checkout includes an executable `examples/custom_policy.py`. This repository has not yet been published to a public GitHub URL.
+The source checkout includes an executable `examples/custom_policy.py`. The repository is public at <https://github.com/ahmedjawedaj/decisionbound> under Apache-2.0.
 
 ## Add a context compiler
 

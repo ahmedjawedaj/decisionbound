@@ -44,6 +44,6 @@ SQLite uses WAL, parameterized SQL, revision checks, a declared schema version, 
 
 If a worker raises, an error event is written. Completion is **never inferred** from a worker result alone; the current preparation verifier is intentionally not an end-to-end artifact verifier.
 
-## Future components (not yet implemented)
+## Not implemented
 
-Real coding workers, multi-agent supervisor/dispatcher, native Codex/Claude SDK adapters, arbitrary external MCP **client** orchestration, enterprise identity, PostgreSQL coordination and production sandboxing. Their design documents exist in the archived v1.5 planning baseline; they must not be advertised as shipped capabilities.
+Arbitrary external MCP **client** orchestration, enterprise identity, PostgreSQL coordination, distributed workers and production sandboxing are not implemented and must not be advertised as shipped. Bounded coding workers, the workflow supervisor and dispatcher, proposal-only native Claude/Codex adapters and the contained worker process model are implemented with the limits stated in [Coding agents](coding-agents.md), [Orchestration](orchestration.md), [Native adapters](native-adapters.md) and [Worker containment](worker-containment.md).
