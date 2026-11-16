@@ -15,6 +15,10 @@ This page describes the **implemented**  controls and their limits. A Git worktr
 | Local event ledger | Authoritative receipt metadata | Store hashes/counters/status; no raw source or model output |
 | Independent verifier | Trusted host code | Compare receipts; reject missing or changed evidence; never assert general task completion |
 
+## Process containment is not isolation
+
+[Worker containment](worker-containment.md) can kill a worker's process tree on a deadline, a cancel or a lost leadership, and it reaps trees a crashed coordinator left behind. That bounds how long a worker runs. It does not restrict what the worker can read, write or reach on the network. Descendants that leave the process group or job object escape it. Filesystem, network and credential isolation stay with the Docker path.
+
 ## Threat-oriented safeguards
 
 - **Patch points to `../secrets` or `.env`:** rejected by the parser before any Git write.

@@ -128,6 +128,7 @@
     "site_docs/supervised-coding.md",
     "site_docs/transferbench-runner.md",
     "site_docs/verification.md",
+    "site_docs/worker-containment.md",
     "src/decisionbound/README.md",
     "src/decisionbound/__init__.py",
     "src/decisionbound/agent_loop.py",

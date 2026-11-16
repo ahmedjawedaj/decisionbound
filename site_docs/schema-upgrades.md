@@ -20,6 +20,7 @@ original database available for rollback.
 - Missing legacy `run_events.created_at` values become the explicit sentinel
   `unknown`, not synthetic creation timestamps.
 - Health checks verify required columns, not just table names.
+- Lazy extension tables sit outside the core schema version. `contained_processes` is created with `CREATE TABLE IF NOT EXISTS` only when a `ProcessRegistry` is constructed with `create=True`, the same pattern as `local_coordinator_lease`. It is additive, changes no existing table and leaves the schema version at 2. Installations that never use contained workers never get the table.
 
 ## Safe operator workflow
 

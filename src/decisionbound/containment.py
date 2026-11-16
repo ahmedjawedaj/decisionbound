@@ -70,7 +70,7 @@ class ContainmentFailure(ContainmentError):
 
 
 def _bounded_int(name: str, value: Any, low: int, high: int) -> int | None:
-    """Validate an optional integer limit; reject bools and out-of-range values."""
+    """Validate an optional integer limit. Reject bools and out-of-range values."""
     if value is None:
         return None
     if type(value) is not int or not low <= value <= high:
@@ -144,7 +144,7 @@ def _boot_id() -> str:
 
 
 def _linux_stat_fields(pid: int) -> list[str] | None:
-    """Parse /proc/<pid>/stat after the command name; None when the process is gone."""
+    """Parse /proc/<pid>/stat after the command name. None when the process is gone."""
     try:
         text = Path(f"/proc/{pid}/stat").read_text()
     except (OSError, ValueError):
@@ -815,7 +815,7 @@ class OrphanReaper:
         return report
 
     def _examine(self, row: dict) -> str:
-        """Decide and carry out the action for one orphan row; return its new state."""
+        """Decide and carry out the action for one orphan row, then return its new state."""
         if row["pid"] is None:
             return "unconfirmed"  # crashed between intent and spawn record: cannot know
         live = process_identity(row["pid"])
