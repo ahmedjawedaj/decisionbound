@@ -200,9 +200,17 @@ class ReviewGate:
         source = directory / (run_id + ".patch")
         flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
         try:
+            # Windows has no O_NOFOLLOW: refuse links and reparse points up
+            # front, then confirm the opened handle is that same file.
+            before = os.lstat(source)
+            reparse = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+            if stat.S_ISLNK(before.st_mode) or getattr(before, "st_file_attributes", 0) & reparse:
+                raise ReviewUnavailable("Patch artifact cannot be opened safely")
             fd = os.open(source, flags)
             with os.fdopen(fd, "rb") as handle:
                 info = os.fstat(handle.fileno())
+                if (info.st_dev, info.st_ino) != (before.st_dev, before.st_ino):
+                    raise ReviewUnavailable("Patch artifact cannot be opened safely")
                 if not stat.S_ISREG(info.st_mode) or info.st_size > 250_000:
                     raise ReviewUnavailable("Patch artifact is not a bounded regular file")
                 data = handle.read(250_001)

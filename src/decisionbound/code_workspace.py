@@ -35,11 +35,42 @@ def _git_env() -> dict[str, str]:
     return env
 
 
+_LINE_ENDING_VALUES = {'core.autocrlf': ('true', 'false', 'input'), 'core.eol': ('lf', 'crlf', 'native')}
+
+
+def _line_ending_options(root: Path) -> list[str]:
+    """Forward the user's effective line-ending settings to isolated Git calls.
+
+    `_git_env` hides system and global configuration, but Git for Windows sets
+    ``core.autocrlf=true`` in its system file. Without that setting a clean
+    CRLF checkout looks modified and is refused. Only these two
+    non-executable keys are read, and only allow-listed values are forwarded.
+    """
+    env = {key: value for key, value in os.environ.items()
+           if not key.startswith(('GIT_', 'SSH_'))}
+    env['GIT_TERMINAL_PROMPT'] = '0'
+    try:
+        result = subprocess.run(['git', '-C', str(root), 'config', '--get-regexp', r'^core\.(autocrlf|eol)$'],
+                                capture_output=True, text=True, timeout=15, env=env)
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    if result.returncode:
+        return []
+    settings: dict[str, str] = {}
+    for line in result.stdout.splitlines():
+        key, _, value = line.strip().partition(' ')
+        key, value = key.lower(), value.strip().lower()
+        if value in _LINE_ENDING_VALUES.get(key, ()):
+            settings[key] = value  # later entries have higher precedence
+    return [item for key, value in sorted(settings.items()) for item in ('-c', f'{key}={value}')]
+
+
 def _git(root: Path, *args: str, timeout: int = 30) -> str:
     """Call the Git executable with a fixed argument vector, never a shell."""
     env = _git_env()
     try:
-        result = subprocess.run(['git', '-C', str(root), '-c', 'core.hooksPath=/dev/null', *args],
+        result = subprocess.run(['git', '-C', str(root), '-c', 'core.hooksPath=/dev/null',
+                                 *_line_ending_options(root), *args],
                                 capture_output=True, text=True, timeout=timeout, env=env)
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise WorkspaceError('Git command unavailable or timed out') from exc
@@ -154,7 +185,10 @@ class GitWorktreeManager:
         if target.parent != self.worktrees or target.is_symlink():
             raise WorkspaceError('Refusing unmanaged cleanup target')
         listed = _git(root, 'worktree', 'list', '--porcelain')
-        if f'worktree {target}' not in listed.splitlines():
+        # Git prints forward slashes on Windows, so compare normalized paths.
+        registered = {os.path.normcase(str(Path(line[len('worktree '):]).resolve()))
+                      for line in listed.splitlines() if line.startswith('worktree ')}
+        if os.path.normcase(str(target.resolve())) not in registered:
             raise WorkspaceError('Git does not recognize this managed worktree')
         _git(root, 'worktree', 'remove', '--force', str(target))
         record = self._record_file(run_id)

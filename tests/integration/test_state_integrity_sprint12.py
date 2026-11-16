@@ -47,7 +47,7 @@ def test_missing_database_never_auto_created(tmp_path):
 
 
 def test_backup_restores_consistent_events(live, tmp_path):
-    backup = tmp_path / "consistent snapshot ?.sqlite3"
+    backup = tmp_path / ("consistent snapshot ?.sqlite3" if os.name == "posix" else "consistent snapshot #.sqlite3")
     snapshot = create_backup(live.path, backup)
     assert snapshot.sha256 == hashlib.sha256(backup.read_bytes()).hexdigest()
     assert snapshot.schema_version == SCHEMA_VERSION
@@ -218,10 +218,12 @@ def test_backup_does_not_copy_uncommitted_wal_transaction(live, tmp_path):
 
 
 def test_special_character_and_unicode_filenames_supported(live, tmp_path):
-    filename = tmp_path / "copy # ? ü 漢 字.db"
+    # "?" is reserved in Windows file names; keep it wherever the OS allows it.
+    query = "?" if os.name == "posix" else "&"
+    filename = tmp_path / f"copy # {query} ü 漢 字.db"
     create_backup(live.path, filename)
     assert inspect_database(filename, full=True).ok
-    restored = tmp_path / "restored # ? héllo.db"
+    restored = tmp_path / f"restored # {query} héllo.db"
     restore_to_new_path(filename, restored)
     assert inspect_database(restored).ok
 
