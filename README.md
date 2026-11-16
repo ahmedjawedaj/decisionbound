@@ -76,7 +76,7 @@ Typical uses include maintaining reviewed architecture decisions, previewing cro
 | Context compilation | Budgeted selection, protected items, source pointers | Default selection is a baseline, not a proven semantic ranking system |
 | Read-only agent execution | Deterministic demo, strict model/tool JSON contracts, optional provider adapters, budgets and receipts | Remote calls require explicit configuration and consent |
 | Coding and review | Patch validation, disposable Git worktrees, acceptance contracts, bounded repair and patch-export review | Writes and Docker execution require authorization; no automatic merge or push |
-| Local orchestration | Dependency graphs, SQLite claims, supervisor/worker dispatch, leases, heartbeats and recovery | Single-device coordination; no distributed consensus or guaranteed process-tree termination |
+| Local orchestration | Dependency graphs, SQLite claims, supervisor/worker dispatch, leases, heartbeats and recovery | Single-device coordination; no distributed consensus. Optional contained workers add hard deadlines and process-tree termination (tests run in CI on Linux, macOS and Windows), but they are not a security sandbox |
 | State durability | Integrity checks, consistent backups, non-overwriting restore and explicit schema migration | Backups contain private metadata; no cross-device replication |
 | Local web interface | Authenticated loopback API, session inspection and local review controls | Single-user pairing; do not expose it as a public service |
 | VS Code extension | Read-only sessions, events, pairing and setup diagnostics | Source and host/packaging checks are provided; Marketplace availability is not implied |
@@ -417,6 +417,19 @@ DecisionBound reads decision records rather than authoring them. It pairs with e
 - [MADR](https://github.com/adr/madr) is a Markdown ADR template. Its default headings differ, so include `## Context` and `## Decision` sections in records you want DecisionBound to discover.
 - [Log4brains](https://github.com/thomvaill/log4brains) manages and publishes ADRs as a browsable site.
 - [adr.github.io](https://adr.github.io/) collects ADR background, templates and tools.
+
+### Related work on decision memory for coding agents
+
+DecisionBound is not the first tool or benchmark in this space. These are the closest items found in a primary-source review on 2026-11-16, listed so you can compare. Descriptions are brief and may be incomplete.
+
+- [Mneme](https://github.com/mnemehq/mneme) keeps decision records with status, priority and scope for coding agents, and ships a small applicability benchmark.
+- [archgate](https://github.com/archgate/cli) turns architecture decisions into checks that can run in CI.
+- [ManyIH-Bench](https://arxiv.org/html/2604.09443v2) tests how models resolve conflicting instructions across many priority tiers.
+- [Memory Transfer Learning](https://arxiv.org/pdf/2604.14004) studies how memories move across domains in coding agents, including cases where they hurt.
+- [VibeMemBench](https://arxiv.org/html/2609.23570) compares memory systems for coding agents on real repositories.
+- [COUNTERMEM](https://arxiv.org/abs/2609.31874) studies verified corrections and when an agent should skip memory.
+
+What this project adds is narrower than any of these on its own: cross-repository reuse of human-approved decisions with an explicit apply, translate, abstain or escalate response. That combination has no real-repository benchmark yet. The bundled fixtures are synthetic and cannot support outside claims.
 
 For agent hosts, the read-only server follows the [Model Context Protocol](https://modelcontextprotocol.io/) and uses the [official MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk) through the optional `mcp` extra.
 
