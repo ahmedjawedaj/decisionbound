@@ -1,6 +1,6 @@
 # CarryBench-Real v2 holdout, candidate set
 
-Status: UNLABELLED. This directory holds 40 candidate cases and nothing else that could act as an answer. There is no `label` field, no gold, no verifier note and no baseline or DecisionBound result. The case file header says so too.
+Status: labels frozen by two blind AI annotators, see `AGREEMENT_REPORT.md`. The candidate file `cases_v2_holdout_candidates.jsonl` stays unlabelled and is the commit that came first. The labelled file is `cases_v2_holdout_v1.jsonl` (35 agreed cases) and the five contested cases are in `excluded_v2_holdout.jsonl`. No human has labelled any case. Labels were frozen before any policy or baseline was run on this set. A policy, prompt or threshold tuned after seeing these labels cannot claim this set as a holdout.
 
 ## Rule for use
 
