@@ -18,7 +18,7 @@ MODULES = ("models", "ports", "storage", "identity", "profiles", "transfer",
            "code_models", "code_ports", "code_workspace", "code_patches",
            "code_sandbox", "code_execution", "code_provider", "code_artifacts",
            "code_acceptance", "code_journal", "code_repair", "code_native",
-           "code_review", "supervised_coding", "workflows", "background", "review_gate", "client_sync", "local_auth", "onboarding", "state_integrity", "state_migration", "transferbench", "release_trust")
+           "code_review", "supervised_coding", "workflows", "containment", "background", "review_gate", "client_sync", "local_auth", "onboarding", "state_integrity", "state_migration", "transferbench", "release_trust")
 
 
 def signature(node: ast.FunctionDef | ast.AsyncFunctionDef) -> str:

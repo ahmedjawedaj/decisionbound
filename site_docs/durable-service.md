@@ -46,7 +46,9 @@ dbound workflow leader-status
 
 Default worker permissions are deliberately narrow: **offline context preparation only**. `--allow-mock` also enables synthetic test tasks, which never establish real software-task completion. Real Claude/Codex/LLM/code workers must be installed, explicitly authorized and injected through the SDK with independent sandbox, budget and acceptance contracts. The background runner does not enable them automatically.
 
-Signals request a graceful drain of in-flight work. A worker that hangs indefinitely cannot be forcibly killed by an in-process Python thread; production coding and network workers must run in separately managed processes or containers with hard deadlines. `--max-seconds` restricts new scheduling but is **not a hard timeout for an already running child**.
+Signals request a graceful drain of in-flight work. A worker that hangs indefinitely cannot be forcibly killed by an in-process Python thread. A worker injected through the SDK as a `ContainedWorker` runs in its own process tree and can be killed: see [Worker containment](worker-containment.md). After the stop grace period (`worker_stop_grace_seconds`, default 10) a graceful stop cancels contained workers, and losing leadership cancels them at the next tick. Production coding and network workers that are not contained must still run in separately managed processes or containers with hard deadlines. `--max-seconds` restricts new scheduling but is **not a hard timeout for an already running child**.
+
+After a coordinator crash, the next coordinator reaps the contained worker trees the old one left behind before it dispatches anything. `dbound workflow reap-orphans` does the same by hand.
 
 ## Example Linux systemd user service
 
@@ -85,7 +87,8 @@ On Windows, schedule a persistent logged-in user task using Task Scheduler's *re
 | Risk | Current local behavior | Required next gate |
 |---|---|---|
 | Two coordinators claim one local state DB | Exclusive SQLite leader token and monotonically increasing generation | Competing-process crash and clock-change drills |
-| Worker runs beyond initial claim TTL | Host renews task lease periodically while waiting | Per-worker hard deadline, forced termination and cleanup |
+| Worker runs beyond initial claim TTL | Host renews task lease periodically while waiting. A `ContainedWorker` also has a hard deadline and its process tree is killed | Docker and Windows job object gates in CI. Thread workers remain unkillable |
+| Coordinator killed while a contained worker runs | The next coordinator reaps the tree before dispatching, killing only a process whose start token matches | Real long-run drills. No lifeline pipe, so workers run until the next coordinator starts |
 | Process killed midway through a read-only task | Expired zero-cost claims can retry within `max_attempts` | Extended kill/restart soak |
 | Paid or write-capable task interrupted | Uncertain outcome quarantined; no automatic replay | Audited reconciliation workflow and external idempotency receipts |
 | Memory use grows | RSS admission check before each dispatch; fixed queue batches | Whole-process/container memory ceiling and representative RSS/CPU benchmarks |
@@ -96,7 +99,7 @@ On Windows, schedule a persistent logged-in user task using Task Scheduler's *re
 ## Quality gates and endurance plan
 
 1. **G16 Local 24–72 hour soak:** scripted worker/provider failures, monotonic memory growth checks, no lost events, bounded service CPU at idle, safe signal stop and `SIGKILL` restart; record versions, p50/p95/p99, RSS and recovery delay.
-2. **G17 Worker isolation:** hard process kill, sandbox policy enforcement, failure to terminate escalation; no thread-only timeout claims.
+2. **G17 Worker isolation:** hard process kill, sandbox policy enforcement, failure to terminate escalation; no thread-only timeout claims. *Partially met:* hard deadline, tree kill, orphan reaping and fail-closed termination are implemented and tested on Linux in [Worker containment](worker-containment.md). Open: Windows job object and macOS results from CI, the Docker gate, and an external security review.
 3. **G18 Multi-host orchestration:** PostgreSQL transactional queue and immutable receipts; lease generations, remote worker auth, per-tenant budgets, single-writer outbox and split-brain tests. SQLite cannot serve as distributed consensus.
 4. **G19 Scale/resources:** measure idle CPU/RSS, open descriptors, startup and task latency, provider token cost per verified outcome, adaptive queue polling and backpressure. Set measurable gates before launch.
 5. **G20 Production security/operability:** supply chain, signing and rollbacks, rotating credentials, least-privilege execution, independent audit, runbooks, SLOs and incident drills.

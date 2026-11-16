@@ -753,6 +753,35 @@ def workflow_serve(
             signal.signal(sig, original)
 
 
+@workflow_cli.command("reap-orphans")
+def workflow_reap_orphans(
+    term_grace_seconds: float = typer.Option(3.0, '--term-grace-seconds', min=0, max=60,
+                                             help='Seconds between SIGTERM and SIGKILL'),
+) -> None:
+    """Kill contained worker trees left behind by a dead coordinator.
+
+    Takes the exclusive coordinator lease for the duration, so it cannot race a
+    running coordinator. Only processes whose recorded start token still matches
+    are signalled. Prints counts only.
+    """
+    from .background import CoordinatorConflict, LocalCoordinatorLeader
+    from .containment import OrphanReaper, ProcessRegistry
+    from .workflows import WorkflowJournal
+    store = repository()
+    leader = LocalCoordinatorLeader(store)
+    try:
+        owned = leader.acquire(ttl_seconds=60)
+    except CoordinatorConflict as exc:
+        typer.echo('A coordinator is running; stop it or let it reap on its own', err=True)
+        raise typer.Exit(2) from exc
+    try:
+        report = OrphanReaper(ProcessRegistry(store, create=False), WorkflowJournal(store),
+                              term_grace_seconds=term_grace_seconds).reap(leader_generation=owned.generation)
+    finally:
+        leader.release(owned)
+    _print(report)
+
+
 @workflow_cli.command("supervised-code")
 def workflow_supervised_code(
     task: str,

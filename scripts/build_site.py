@@ -33,6 +33,7 @@ PAGES = [
     ("Repair loops", "repair-loops.md"),
     ("Multi-agent orchestration", "orchestration.md"),
     ("Durable background service", "durable-service.md"),
+    ("Worker containment", "worker-containment.md"),
     ("Native adapters", "native-adapters.md"),
     ("Sandboxing", "sandboxing.md"),
     ("MCP integration", "mcp-integration.md"),
