@@ -1,0 +1,35 @@
+{"allowed": ["abstain"], "case_id": "tbr-c01", "confidence": 0.9, "label": "abstain", "rationale": "Tool-choice decision; target has its own enforced choice (lockfile plus agent rule)."}
+{"allowed": ["abstain"], "case_id": "tbr-c02", "confidence": 0.85, "label": "abstain", "rationale": "Target states the opposite runner preference in an agent file."}
+{"allowed": ["abstain"], "case_id": "tbr-c03", "confidence": 0.9, "label": "abstain", "rationale": "Target mandates the convention the source forbids and enforces it in CI."}
+{"allowed": ["abstain"], "case_id": "tbr-c04", "confidence": 0.9, "label": "abstain", "rationale": "Target requires exactly the artefact the source forbids."}
+{"allowed": ["abstain", "translate"], "case_id": "tbr-c05", "confidence": 0.8, "label": "abstain", "rationale": "Both repos use changesets, but the target forbids hand-written ones. Same tool, opposite rule."}
+{"allowed": ["abstain"], "case_id": "tbr-c06", "confidence": 0.85, "label": "abstain", "rationale": "Target sub-tree explicitly rejects fragments. Scope is the providers directory."}
+{"allowed": ["translate", "abstain"], "case_id": "tbr-c07", "confidence": 0.65, "label": "translate", "rationale": "Target uses fragments but narrows when one is allowed, so the practice carries only in restricted form."}
+{"allowed": ["abstain"], "case_id": "tbr-c08", "confidence": 0.9, "label": "abstain", "rationale": "Target formats with black and lints with flake8; there is no ruff configuration."}
+{"allowed": ["abstain"], "case_id": "tbr-c09", "confidence": 0.8, "label": "abstain", "rationale": "Target mandates the exact command the source forbids. Both texts mention uv, so word overlap misleads."}
+{"allowed": ["translate", "abstain"], "case_id": "tbr-c10", "confidence": 0.6, "label": "translate", "rationale": "Intent (do not bypass the project's dependency manager) carries; the mechanism is poetry, not uv."}
+{"allowed": ["abstain"], "case_id": "tbr-c11", "confidence": 0.7, "label": "abstain", "rationale": "Target has an always-on rule that requires mocking dependencies."}
+{"allowed": ["abstain"], "case_id": "tbr-c12", "confidence": 0.75, "label": "abstain", "rationale": "Target says it does not ask for disclosure. Process decision, no code end state."}
+{"allowed": ["translate"], "case_id": "tbr-c13", "confidence": 0.65, "label": "translate", "rationale": "Disclosure intent carries; the mechanism is the template field, not a label."}
+{"allowed": ["escalate", "abstain"], "case_id": "tbr-c14", "confidence": 0.6, "label": "escalate", "rationale": "Target policy questions whether the agent should post at all. That is a maintainer and operator call, not a labelling choice."}
+{"allowed": ["escalate", "translate"], "case_id": "tbr-c15", "confidence": 0.55, "label": "escalate", "rationale": "Scope condition (MIT) fails; licence compatibility under a different licence is a human judgement."}
+{"allowed": ["abstain"], "case_id": "tbr-c16", "confidence": 0.8, "label": "abstain", "rationale": "Target enforces the merge mode the source ADR disables."}
+{"allowed": ["abstain", "translate"], "case_id": "tbr-c17", "confidence": 0.65, "label": "abstain", "rationale": "For this file type the target decided on a default export. The source ADR's own exception clause could also cover it."}
+{"allowed": ["abstain"], "case_id": "tbr-c18", "confidence": 0.55, "label": "abstain", "rationale": "Target sub-package keeps a root barrel on purpose. Weak: the source bans star re-exports, the target may use named ones."}
+{"allowed": ["abstain"], "case_id": "tbr-c19", "confidence": 0.85, "label": "abstain", "rationale": "Target is on pnpm, and its history holds a documented revert of a yarn move. The wrapper is source-specific."}
+{"allowed": ["apply"], "case_id": "tbr-p01", "confidence": 0.85, "label": "apply", "rationale": "Same enforced tool in the target."}
+{"allowed": ["apply"], "case_id": "tbr-p02", "confidence": 0.9, "label": "apply", "rationale": "Same rule stated in the target. Trivial by keyword."}
+{"allowed": ["apply"], "case_id": "tbr-p03", "confidence": 0.85, "label": "apply", "rationale": "Same runner in the target."}
+{"allowed": ["apply"], "case_id": "tbr-p04", "confidence": 0.85, "label": "apply", "rationale": "Same convention; target adds a mandatory scope, which the task must respect."}
+{"allowed": ["apply"], "case_id": "tbr-p05", "confidence": 0.9, "label": "apply", "rationale": "Near-identical rule in the target."}
+{"allowed": ["apply", "translate"], "case_id": "tbr-p06", "confidence": 0.75, "label": "apply", "rationale": "Same practice; the launcher command differs (target is a pnpm workspace) and examples are exempt."}
+{"allowed": ["apply"], "case_id": "tbr-p07", "confidence": 0.8, "label": "apply", "rationale": "Same tool and practice in the target; fragment directory and naming are target-specific."}
+{"allowed": ["apply", "translate"], "case_id": "tbr-p08", "confidence": 0.7, "label": "apply", "rationale": "Target uses the same formatter and linter and has a uv lock."}
+{"allowed": ["apply"], "case_id": "tbr-p09", "confidence": 0.85, "label": "apply", "rationale": "Same prohibition in the target."}
+{"allowed": ["apply", "translate"], "case_id": "tbr-p10", "confidence": 0.65, "label": "apply", "rationale": "Same preference in the target. Cross-language: the Python mock library named in the source does not exist there."}
+{"allowed": ["apply", "translate"], "case_id": "tbr-p11", "confidence": 0.7, "label": "apply", "rationale": "Target also requires disclosure. It adds that a real person must open the PR."}
+{"allowed": ["apply"], "case_id": "tbr-p12", "confidence": 0.9, "label": "apply", "rationale": "Target holds an accepted ADR with the same decision."}
+{"allowed": ["apply"], "case_id": "tbr-p13", "confidence": 0.8, "label": "apply", "rationale": "Same rule for the target's frontend tree."}
+{"allowed": ["apply"], "case_id": "tbr-p14", "confidence": 0.8, "label": "apply", "rationale": "Current lockfile and docs say pnpm. The old revert commit is a stale counter-signal and must lose to current enforced state."}
+{"allowed": ["apply"], "case_id": "tbr-p15", "confidence": 0.6, "label": "apply", "rationale": "Target history shows the same restraint, scoped to bug-fix releases. Single old commit, so weak."}
+{"allowed": ["apply"], "case_id": "tbr-p16", "confidence": 0.85, "label": "apply", "rationale": "Same rule in the target. The miner's polarity heuristic scored this pair as conflicting, which is wrong."}

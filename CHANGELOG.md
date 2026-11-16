@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add CarryBench-Real v1 under `benchmarks/carrybench/`: 66 real cases from 50 permissively licensed repositories as pinned pointers and hashes (no third-party text), labelled by two blind LLM annotators with no human labels, with a dataset card, agreement report, eight simple baselines, scores for the shipped transfer methods, two guide-free language model runs, 33 executable end-state checks on synthetic reductions, and fetch, mine, verify and scoring tools. The set is unvalidated and small, and every document says so.
 - Fix the package `__version__` (it said 0.6.0a1) and add a test that keeps it equal to `pyproject.toml` and `CITATION.cff`.
 - Add a README section on closely related decision-memory work, and say plainly that the bundled fixtures are synthetic.
 - Add worker-process containment (`decisionbound.containment`): `ContainedWorker` runs tasks in a killable process tree with a hard deadline, an allowlisted environment, bounded single-line receipts and optional resource limits. The containment tests pass in CI on Linux, macOS and Windows (Python 3.11 to 3.13). Open review items remain for Windows, listed in the containment page.

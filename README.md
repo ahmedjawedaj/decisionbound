@@ -388,6 +388,8 @@ Some integrations require opt-in prerequisites. A skipped test is not a pass, mo
 
 [`benchmarks/transferbench/`](benchmarks/transferbench/) (public name: CarryBench, synthetic tier) contains synthetic fixtures and a deterministic policy-oracle runner. It compares fixed transfer policies against handcrafted action labels. It does not execute software tasks through an LLM, measure real provider cost, or establish generalization to production repositories. See the [evaluation guide](https://ahmedjawedaj.github.io/decisionbound/transferbench-runner.html).
 
+[`benchmarks/carrybench/real_v1/`](benchmarks/carrybench/real_v1/) adds 66 real cases from 50 permissively licensed public repositories, stored as pinned pointers and hashes with no third-party text. Labels come from two blind LLM annotators and no human has labelled any case, so scores measure agreement with that pair. On it, simple rules and the shipped transfer policy score between 0.29 and 0.58 accuracy, and two guide-free language model runs score 0.59 and 0.68 while stopping for a human in only 1 and 3 of the 11 cases that needed one. See the [dataset card](benchmarks/carrybench/real_v1/DATASET_CARD.md) for method and limits.
+
 The public [roadmap](ROADMAP.md) prioritizes independently verified worker isolation and cancellation, platform correctness, security review, resource measurement and reproducible packaging. Distributed coordination, multi-host recovery and sustained fleet operation remain future work. No delivery date or comparative performance advantage is promised.
 
 ## Repository structure
@@ -401,6 +403,7 @@ examples/                SDK examples and workflow manifests
 schemas/                 Versioned data and execution contracts
 config/                  Example configuration and profile presets
 benchmarks/transferbench/ Synthetic policy fixtures and evaluation guidance
+benchmarks/carrybench/    Real-case benchmark tier: pinned pointers, labels, baselines
 tests/                   Runtime, integration, security and contract tests
 scripts/                 Documentation, packaging and verification tools
 .github/                 CI, issue templates, ownership and dependency updates
