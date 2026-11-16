@@ -20,6 +20,44 @@ from .transfer import ConservativeTransferPolicy
 
 ACTIONS = frozenset({'apply', 'translate', 'abstain', 'escalate'})
 METHODS = ('no-transfer', 'full-transfer', 'tags-only', 'decisionbound')
+_CASE_KEYS = frozenset({'format', 'case_id', 'split', 'repo_family', 'target',
+                        'decision', 'forbidden_ids', 'allowed_actions',
+                        'policy_conflict', 'label_reason'})
+# Optional annotation metadata. It is validated and then discarded: it never
+# reaches TransferCase, so no policy can read annotator or pairing labels.
+_META_KEYS = frozenset({'annotator_1', 'annotator_2', 'category', 'role', 'pair_id'})
+_HEADER_FORMAT = 'transferbench-file-header-v1'
+_HEADER_KEYS = frozenset({'format', 'dataset_id', 'synthetic', 'note',
+                          'annotator_1', 'annotator_2', 'case_count'})
+
+
+def _check_metadata(obj: dict) -> None:
+    """Fail closed on malformed optional annotation fields of a case record."""
+    for key in ('annotator_1', 'category', 'pair_id'):
+        if key in obj and (not isinstance(obj[key], str) or not 1 <= len(obj[key]) <= 100):
+            raise ValueError('Invalid annotation metadata')
+    if 'annotator_2' in obj and obj['annotator_2'] is not None and (
+            not isinstance(obj['annotator_2'], str) or not 1 <= len(obj['annotator_2']) <= 100):
+        raise ValueError('Invalid annotation metadata')
+    if 'role' in obj and obj['role'] not in ('trap', 'positive'):
+        raise ValueError('Invalid annotation metadata')
+
+
+def _check_header(obj: dict) -> int | None:
+    """Validate the optional first-line file note and return its declared case count."""
+    if set(obj) != _HEADER_KEYS or obj['synthetic'] is not True:
+        raise ValueError('Invalid benchmark file header')
+    if not isinstance(obj['note'], str) or not obj['note'].strip():
+        raise ValueError('Invalid benchmark file header')
+    if not isinstance(obj['dataset_id'], str) or not obj['dataset_id'].strip():
+        raise ValueError('Invalid benchmark file header')
+    if not isinstance(obj['annotator_1'], str) or not obj['annotator_1'].strip():
+        raise ValueError('Invalid benchmark file header')
+    if obj['annotator_2'] is not None and not isinstance(obj['annotator_2'], str):
+        raise ValueError('Invalid benchmark file header')
+    if type(obj['case_count']) is not int or obj['case_count'] < 1:
+        raise ValueError('Invalid benchmark file header')
+    return obj['case_count']
 
 
 @dataclass(frozen=True)
@@ -54,6 +92,8 @@ def load_cases(path: str | Path) -> tuple[TransferCase, ...]:
         raise ValueError('Benchmark must be a regular JSONL file below 2 MB')
     cases: list[TransferCase] = []
     seen = set()
+    declared_count: int | None = None
+    header_seen = False
     for number, line in enumerate(file.read_text(encoding='utf-8').splitlines(), 1):
         if not line.strip():
             continue
@@ -61,10 +101,15 @@ def load_cases(path: str | Path) -> tuple[TransferCase, ...]:
             raise ValueError('Benchmark contains more than 2000 cases')
         try:
             obj = json.loads(line)
-            if set(obj) != {'format', 'case_id', 'split', 'repo_family', 'target',
-                            'decision', 'forbidden_ids', 'allowed_actions',
-                            'policy_conflict', 'label_reason'}:
+            if isinstance(obj, dict) and obj.get('format') == _HEADER_FORMAT:
+                if header_seen or cases:
+                    raise ValueError('Benchmark header must be the single first record')
+                header_seen = True
+                declared_count = _check_header(obj)
+                continue
+            if not _CASE_KEYS <= set(obj) <= _CASE_KEYS | _META_KEYS:
                 raise ValueError('Unknown or missing benchmark keys')
+            _check_metadata(obj)
             if obj['format'] != 'transferbench-case-v1' or obj['split'] not in ('train', 'test'):
                 raise ValueError('Unsupported benchmark version or split')
             if not isinstance(obj['case_id'], str) or not 1 <= len(obj['case_id']) <= 128:
@@ -99,6 +144,8 @@ def load_cases(path: str | Path) -> tuple[TransferCase, ...]:
         cases.append(case)
     if not cases:
         raise ValueError('Benchmark dataset is empty')
+    if declared_count is not None and declared_count != len(cases):
+        raise ValueError('Benchmark header case count does not match records')
     train = {c.repo_family for c in cases if c.split == 'train'}
     test = {c.repo_family for c in cases if c.split == 'test'}
     if train & test:
