@@ -16,8 +16,8 @@ Run `python scripts/evaluate_transferbench.py --cases benchmarks/transferbench/f
 The runner tests `no-transfer`, `full-transfer`, `tags-only`, and the conservative
 DecisionBound policy and emits bounded, labeled statistics with deterministic
 cluster bootstrap. All real model cost, code correctness, and successful task
-metrics remain null. See `site_docs/transferbench-runner.md` and
-`EVALUATION_PROTOCOL.md` for the planned independently labeled study.
+metrics remain null. See `site_docs/transferbench-runner.md` for the runner and the evaluation
+methodology.
 
 ## Controlled fixture: `synthetic_controlled_v1.jsonl` (SYNTHETIC)
 

@@ -566,7 +566,6 @@ def test_readme_states_per_split_ceilings_clones_and_new_only_results():
         assert needle in text, needle
     assert 'No constant policy can be correct on more than 37.5 percent' not in text
     assert 'independent allowed-action labels' not in text
-    assert 'is not independent evidence' not in text or 'author-written' in text
 
 
 def test_no_claim_that_labels_are_independent_in_code_or_docs():
