@@ -31,10 +31,34 @@ resampling, but the fixture authors are also the code authors. The results
 cannot support a publication, commercial benchmark comparisons, or claims of
 negative-transfer reduction on actual repositories.
 
+## Controlled 48-case fixture (SYNTHETIC)
+
+`benchmarks/transferbench/fixtures/synthetic_controlled_v1.jsonl` extends the
+smoke file to 48 cases: the 14 smoke cases reused verbatim plus 34 new ones in 24
+matched trap and positive pairs, with 16 `train` cases in four families and 32
+`test` cases in three disjoint families. It is **SYNTHETIC and single-annotator**:
+every label is author-written (`annotator_1` is `author`, `annotator_2` is null)
+and no second annotator has reviewed it. It has no real-agent results.
+
+```bash
+python scripts/evaluate_transferbench.py \
+  --cases benchmarks/transferbench/fixtures/synthetic_controlled_v1.jsonl \
+  --split test --seed 17 --bootstrap-samples 1000 \
+  --output /tmp/transferbench-controlled.json
+```
+
+The best constant policy is acceptable on at most 40.6 percent of test cases, 31.25
+percent of train cases and 37.5 percent pooled. The conservative policy matching
+the labels is expected by construction, because one author wrote both, so treat it
+as a consistency check and not as evidence. Two inherited smoke cases appear as
+exact clones across the split. See the fixture README for the clone list, the
+"new cases only" results, category and label caveats, and the deviations from the
+staged protocol.
+
 ## What the report means
 
 - `oracle_action_acceptance`: fraction of records whose action is included in
-  the independently recorded set of acceptable actions.
+  the author-recorded set of acceptable actions.
 - `harmful_per_transfer`: **oracle-disallowed transfer actions** divided by
   all apply/translate actions; null when no transfers occur. This is not the
   observed rate of real regressions.

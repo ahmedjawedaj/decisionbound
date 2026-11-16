@@ -40,6 +40,7 @@
     "apps/vscode/test/package.test.cjs",
     "apps/web/README.md",
     "benchmarks/transferbench/README.md",
+    "benchmarks/transferbench/fixtures/synthetic_controlled_v1.jsonl",
     "benchmarks/transferbench/fixtures/synthetic_smoke_v1.jsonl",
     "config/PLUGINS.md",
     "config/decisionbound.example.yaml",
@@ -247,6 +248,7 @@
     "tests/unit/test_onboarding_sprint10.py",
     "tests/unit/test_profiles.py",
     "tests/unit/test_provider_adapters.py",
-    "tests/unit/test_require_executed.py"
+    "tests/unit/test_require_executed.py",
+    "tests/unit/test_transferbench_controlled_v1.py"
   ]
 }
