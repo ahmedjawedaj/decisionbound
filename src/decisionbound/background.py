@@ -8,6 +8,9 @@ be independently authorized and sandboxed by their operators.
 
 This is **not** a distributed consensus implementation, a task-killing sandbox,
 or a multi-tenant cloud service. It is a bounded local service primitive.
+Workers that run as ``ContainedWorker`` child processes are killed on deadline,
+cancel, stop or lost leadership, and a restarted coordinator reaps the trees of
+a crashed one. In-process thread workers still cannot be forcibly stopped.
 """
 from __future__ import annotations
 
@@ -20,6 +23,7 @@ import threading
 import time
 from typing import Mapping
 
+from .containment import ContainedWorker, OrphanReaper, ProcessRegistry
 from .storage import SQLiteRepository
 from .workflows import (WorkflowConflict, WorkflowJournal, WorkflowSupervisor,
                         WorkflowWorker, PreparationWorker, IndependentTaskVerifier)
@@ -92,8 +96,10 @@ class CoordinatorSettings:
 
     ``max_seconds`` limits the coordinator's scheduling lifetime, not the
     execution time of arbitrary worker processes. Worker plugins MUST enforce
-    their own hard process/network deadlines. ``max_rss_mib=None`` disables the
-    RSS guard explicitly; otherwise an unavailable measurement fails closed.
+    their own hard process/network deadlines, or run inside a ``ContainedWorker``.
+    ``max_rss_mib=None`` disables the RSS guard explicitly; otherwise an
+    unavailable measurement fails closed. ``worker_stop_grace_seconds`` is how
+    long a graceful stop lets running workers finish before they are cancelled.
     """
     poll_seconds: float = 2.0
     leader_lease_seconds: int = 30
@@ -102,6 +108,7 @@ class CoordinatorSettings:
     max_workflows_per_cycle: int = 8
     max_dispatch_per_workflow: int = 2
     max_wall_seconds_per_workflow: int = 30
+    worker_stop_grace_seconds: int = 10
 
     def __post_init__(self) -> None:
         if (not 0.05 <= self.poll_seconds <= 60 or
@@ -115,6 +122,8 @@ class CoordinatorSettings:
             not 1 <= self.max_dispatch_per_workflow <= 200 or
             type(self.max_wall_seconds_per_workflow) is not int or
             not 5 <= self.max_wall_seconds_per_workflow <= 3600 or
+            type(self.worker_stop_grace_seconds) is not int or
+            not 0 <= self.worker_stop_grace_seconds <= 300 or
             self.max_rss_mib is not None and
             (isinstance(self.max_rss_mib, bool) or not 32 <= self.max_rss_mib <= 1048576)):
             raise ValueError('Invalid coordinator resource or scheduling limits')
@@ -269,7 +278,16 @@ class BackgroundCoordinator:
         background = threading.Thread(target=leader_heartbeat, name='dbound-leader-heartbeat', daemon=True)
         started = time.monotonic()
         background.start()
+        registries = {w.registry for w in self.workers.values() if isinstance(w, ContainedWorker)}
+        reaped = unconfirmed = 0
         try:
+            # Stamp new worker rows with this leadership, then clean up whatever
+            # a crashed or replaced coordinator left running, before any dispatch.
+            for registry in registries:
+                registry.bind_leader_generation(owned.generation)
+            report = OrphanReaper(ProcessRegistry(self.store, create=False),
+                                  self.journal).reap(leader_generation=owned.generation)
+            reaped, unconfirmed = report['terminated'], report['unconfirmed']
             while not stop.is_set() and not lost.is_set():
                 if max_seconds is not None and time.monotonic() - started >= max_seconds:
                     break
@@ -294,13 +312,16 @@ class BackgroundCoordinator:
                         lease_seconds=self.settings.task_lease_seconds,
                         max_wall_seconds=self.settings.max_wall_seconds_per_workflow,
                         max_dispatch=self.settings.max_dispatch_per_workflow,
-                        stop_event=stop)
+                        stop_event=stop, abort_event=lost,
+                        stop_grace_seconds=self.settings.worker_stop_grace_seconds)
                     after = self.journal.status(workflow_id)
                     processed += sum(b['state'] != a['state'] for b, a in zip(before['tasks'], after['tasks']))
                 if once:
                     break
                 stop.wait(self.settings.poll_seconds)
         finally:
+            for registry in registries:
+                registry.bind_leader_generation(0)
             heartbeat_shutdown.set()
             background.join(timeout=2)
             self.leader.release(owned)
@@ -309,4 +330,5 @@ class BackgroundCoordinator:
         return {'cycles': cycles, 'task_state_changes': processed,
                 'leadership_generation': owned.generation,
                 'leader_heartbeats': heartbeats, 'stopped': True,
+                'orphans_reaped': reaped, 'orphans_unconfirmed': unconfirmed,
                 'task_completed': False}

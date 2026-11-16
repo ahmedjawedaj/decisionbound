@@ -499,7 +499,9 @@ class WorkflowJournal:
     Atomic ``BEGIN IMMEDIATE`` claims prevent duplicate scheduling by competing
     local processes. Expired read-only claims can be retried; expired code claims
     are quarantined because a write may have completed despite the timeout.
-    Leases are not an execution sandbox and cannot forcibly stop a process.
+    Leases are not an execution sandbox. A lease alone cannot stop a process:
+    a ``ContainedWorker`` kills its process tree when the supervisor sees the
+    claim revoked, but in-process thread workers cannot be stopped.
     """
 
     def __init__(self, store: SQLiteRepository):
@@ -784,6 +786,16 @@ class WorkflowJournal:
             self._event(db, lease.workflow_id, lease.task.task_id, "quarantined", {"reason": reason})
             self._refresh(db, lease.workflow_id, time.time())
 
+    def claim_is_current(self, lease: TaskLease, *, now: float | None = None) -> bool:
+        """Read-only check that ``lease`` still owns its task (token, generation, unexpired)."""
+        t = time.time() if now is None else now
+        with self.store._connection() as db:
+            row = db.execute("""SELECT 1 FROM workflow_tasks t JOIN workflows w USING(workflow_id)
+                WHERE t.workflow_id=? AND t.task_id=? AND t.owner_token=? AND t.generation=?
+                AND t.state='leased' AND t.lease_until>? AND w.state='running'""",
+                (lease.workflow_id, lease.task.task_id, lease.owner_token, lease.generation, t)).fetchone()
+        return row is not None
+
     def note_late_result(self, lease: TaskLease, reason: str) -> None:
         """Record, as an event only, that a result or failure arrived after the claim was lost.
 
@@ -857,10 +869,13 @@ class WorkflowJournal:
         return self.status(workflow_id)
 
     def cancel(self, workflow_id: str) -> dict:
-        """Revoke all task claims; running external processes are not killed.
+        """Revoke all task claims.
 
-        Operators must separately terminate and inspect any coding sandbox.
-        Late completions fail the owner-token CAS check.
+        A supervisor notices the revoked claim at its next heartbeat tick and
+        kills the process tree of a ``ContainedWorker``, even when the cancel
+        came from another process. In-process thread workers and Docker coding
+        sandboxes are not stopped, so operators must terminate and inspect
+        those separately. Late completions fail the owner-token CAS check.
         """
         with self.store._connection() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -946,6 +961,12 @@ class WorkflowSupervisor:
     supervisors can poll concurrently; SQLite serializes claims. Worker-facing
     leases are opaque and finalization is owner/generation checked. Thread
     concurrency is local-only and does not imply distributed worker support.
+
+    Every lease gets an :class:`ExecutionControl`. While any worker runs, the
+    supervisor ticks every ``min(0.5, lease_seconds/3)`` seconds: it renews the
+    lease, and a failed renewal (claim cancelled or replaced) cancels that
+    worker. Only workers that implement ``execute_controlled`` with a killable
+    process, such as ``ContainedWorker``, actually stop.
     """
 
     def __init__(self, journal: WorkflowJournal,
@@ -962,73 +983,112 @@ class WorkflowSupervisor:
 
     def run(self, workflow_id: str, *, lease_seconds: int = 120,
             max_wall_seconds: int = 120, max_dispatch: int = 100,
-            stop_event: threading.Event | None = None) -> dict:
+            stop_event: threading.Event | None = None,
+            abort_event: threading.Event | None = None,
+            stop_grace_seconds: float = 10) -> dict:
         """Schedule eligible tasks and wait for local workers within soft limits.
 
         ``max_wall_seconds`` is a best-effort dispatch limit, not a hard process
         or sandbox timeout. Per-worker provider and test timeouts are required.
+        ``stop_event`` stops new dispatch and, after ``stop_grace_seconds``,
+        cancels running workers. ``abort_event`` (leadership lost) cancels them
+        at the next tick. Cancelling only has an effect on killable workers.
         """
+        from .containment import ContainmentFailure, WorkerCancelled, WorkerOutputInvalid
         if not 5 <= max_wall_seconds <= 3600 or not 1 <= max_dispatch <= 200:
             raise ValueError("Invalid supervisor limits")
+        if (isinstance(stop_grace_seconds, bool) or not isinstance(stop_grace_seconds, (int, float)) or
+                not 0 <= stop_grace_seconds <= 300):
+            raise ValueError("Invalid stop grace")
         begin = time.monotonic()
         stop = stop_event or threading.Event()
+        abort = abort_event or threading.Event()
         max_workers = self.journal.status(workflow_id)["max_workers"]
-        pending = {}
+        pending: dict = {}
         scheduled = 0
+        stop_seen_at: float | None = None
 
-        def work(lease: TaskLease) -> tuple[str, WorkerReceipt]:
+        def work(lease: TaskLease, control: ExecutionControl) -> tuple[str, WorkerReceipt]:
             route = f"{lease.task.kind}:{lease.task.role}"
             selected = self.workers.get(route) or self.workers[lease.task.kind]
-            receipt = selected.execute(lease.assignment())
+            receipt = selected.execute_controlled(lease.assignment(), control)
             if not isinstance(receipt, WorkerReceipt):
                 raise TypeError("Worker did not return a typed receipt")
             outcome = self.verifier.verify(lease, receipt)
             return outcome, receipt
 
+        def quarantine_or_block(lease: TaskLease, reason: str) -> None:
+            try:
+                self.journal.quarantine(lease, reason=reason)
+            except WorkflowConflict:
+                if reason == "containment_failed":
+                    # The claim moved on, but a process we could not prove dead
+                    # must still stop that generation from being trusted.
+                    self.journal.block_uncontained(lease.workflow_id, lease.task.task_id, lease.generation)
+
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
             while True:
-                while (not stop.is_set() and len(pending) < max_workers and scheduled < max_dispatch and
-                       time.monotonic() - begin < max_wall_seconds):
+                while (not stop.is_set() and not abort.is_set() and len(pending) < max_workers and
+                       scheduled < max_dispatch and time.monotonic() - begin < max_wall_seconds):
                     lease = self.journal.claim(workflow_id,
                         worker_kinds={k.split(":", 1)[0] for k in self.workers},
                         worker_routes=set(self.workers), lease_seconds=lease_seconds)
                     if lease is None:
                         break
-                    pending[pool.submit(work, lease)] = lease
+                    control = ExecutionControl(workflow_id, lease.task.task_id, lease.attempt, lease.generation)
+                    pending[pool.submit(work, lease, control)] = (lease, control)
                     scheduled += 1
                 if not pending:
                     break
                 # Keep host-owned task leases alive while bounded worker calls
-                # are executing. A process crash stops these renewals; the
-                # persisted journal decides which stages can safely retry.
-                done, _ = wait(pending, timeout=min(2.0, lease_seconds / 3),
+                # are executing, and notice claims that were revoked. A process
+                # crash stops these renewals; the persisted journal decides
+                # which stages can safely retry.
+                done, _ = wait(pending, timeout=min(0.5, lease_seconds / 3),
                                return_when=FIRST_COMPLETED)
                 for future in done:
-                    lease = pending.pop(future)
+                    lease, control = pending.pop(future)
                     try:
                         state, receipt = future.result()
+                    except ContainmentFailure:
+                        quarantine_or_block(lease, "containment_failed")
+                    except WorkerOutputInvalid:
+                        quarantine_or_block(lease, "invalid_receipt")
                     except Exception as exc:
                         try:
                             self.journal.fail(lease, exc)
                         except WorkflowConflict:
-                            pass  # expired/cancelled lease: never overwrite newer owner
+                            # Expired/cancelled lease: never overwrite a newer owner.
+                            if not (isinstance(exc, WorkerCancelled) and control.cancel.is_set()):
+                                self.journal.note_late_result(lease, "fail_rejected")
                     else:
                         try:
                             self.journal.finish(lease, state=state, receipt=receipt, verifier=self.verifier)
                         except (WorkflowConflict, ValueError) as exc:
                             # Over-budget or malformed worker receipts are not
                             # normal failures and must never enter retry logic.
+                            if not self.journal.claim_is_current(lease):
+                                self.journal.note_late_result(lease, "finish_rejected")
                             try:
                                 self.journal.quarantine(lease, reason="over_budget" if receipt.cost_usd > lease.reserved_cost_usd else
                                                         "invalid_receipt")
                             except WorkflowConflict:
                                 pass  # An expired or cancelled lease owns nothing.
-                for outstanding_lease in pending.values():
+                now = time.monotonic()
+                if abort.is_set():
+                    for _, control in pending.values():
+                        control.request_cancel("leadership_lost")
+                if stop.is_set():
+                    stop_seen_at = now if stop_seen_at is None else stop_seen_at
+                    if now - stop_seen_at >= stop_grace_seconds:
+                        for _, control in pending.values():
+                            control.request_cancel("stop_grace_expired")
+                for outstanding_lease, control in pending.values():
                     try:
                         self.journal.heartbeat(outstanding_lease, lease_seconds=lease_seconds)
                     except WorkflowConflict:
                         # A cancelled/replaced claim cannot be renewed; its
                         # late result will also fail owner/generation fencing.
-                        pass
+                        control.request_cancel("claim_revoked")
 
         return self.journal.reconcile(workflow_id)
