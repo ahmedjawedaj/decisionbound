@@ -2,6 +2,7 @@
 from __future__ import annotations
 import hashlib
 import json
+import os
 import subprocess
 import uuid
 from pathlib import Path
@@ -202,8 +203,10 @@ def test_verifier_rejects_manually_forged_receipt(project):
 
 def test_patch_file_artifact_has_owner_only_permissions(project):
     result = execute(project)
-    mode = Path(result.patch_artifact).stat().st_mode & 0o777
-    assert mode == 0o600
+    assert Path(result.patch_artifact).is_file()
+    if os.name == 'posix':  # NTFS has no POSIX mode bits to assert on.
+        mode = Path(result.patch_artifact).stat().st_mode & 0o777
+        assert mode == 0o600
 
 
 def test_two_mock_test_commands_and_early_failure(project):

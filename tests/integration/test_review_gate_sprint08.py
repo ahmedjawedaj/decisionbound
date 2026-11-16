@@ -149,9 +149,10 @@ def test_symlinked_patch_and_origin_path_are_refused(completed, tmp_path):
     gate = ReviewGate(store, state)
     snap = gate.snapshot(wid)
     artifact = state / "code-artifacts" / (snap["run_id"] + ".patch")
-    artifact.unlink()
+    # Identical bytes, so only the link check (not the digest) can refuse it.
     external = tmp_path / "external.patch"
-    external.write_text(PATCH)
+    external.write_bytes(artifact.read_bytes())
+    artifact.unlink()
     artifact.symlink_to(external)
     with pytest.raises(ReviewUnavailable, match="safely"):
         gate.snapshot(wid)
