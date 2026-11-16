@@ -100,7 +100,9 @@ When a coordinator acquires leadership it runs the reaper before its first dispa
 | Leader gone, group still alive (POSIX) | Send no signal, block the task | `unconfirmed` |
 | Crash between intent and spawn | Block the task | `unconfirmed` |
 | Windows `windows_job` row, job still exists | Terminate the job, confirm it is empty | `terminated`, or `unconfirmed` if it never empties |
-| Windows `windows_job` row, no job of that name | Nothing to do (kill-on-close ran) | `gone` |
+| Windows `windows_job` row, no job of that name, leader gone | Nothing to do (kill-on-close ran) | `gone`, or `unconfirmed` if the job lookup itself failed |
+| Windows `windows_job` row, no job of that name, leader alive with the recorded start token | `taskkill /T` on the leader, as before the job check existed | `terminated`, or `unconfirmed` if it survives |
+| Windows row whose process id now has a different start token | Never touched, with or without a job | `identity_mismatch` |
 
 The reaper never changes task state except to block an unconfirmed task. The journal stays the only authority. You can run it by hand with `dbound workflow reap-orphans`, which takes the coordinator lease so it cannot race a running coordinator.
 
@@ -113,7 +115,7 @@ The reaper never changes task state except to block an unconfirmed task. The jou
 - There is no lifeline pipe or subreaper. After a coordinator `SIGKILL` on POSIX, workers run until the next coordinator reaps them.
 - A crash between spawn and the pid record can leave an unrecorded process on POSIX. Windows is covered by job close.
 - Existing in-process workers (`PreparationWorker`, `CodingRepairWorker`) were not converted. They are still not killable.
-- On Windows, a `windows_job` orphan row is now settled through the named job object (open by name, terminate, mark `terminated` only when the job reports no active processes). The decision logic and the `OpenJobObjectW` call shape are unit tested with fakes on every OS. The real Windows execution of that new check is **unverified** until a windows-latest run reports `test_open_job_object_on_a_real_windows_host`. Rows at `windows_tree_best_effort` still use `taskkill` by process id, which misses descendants that left the tree.
+- On Windows, a `windows_job` orphan row is settled through the named job object when that job can still be opened (open by name, terminate, mark `terminated` only when the job reports no active processes). When no job can be opened, the earlier identity check and `taskkill` fallback apply unchanged. The decision logic and the `OpenJobObjectW` call shape are unit tested with fakes on every OS. The real Windows execution of that new check is **unverified** until a windows-latest run reports `test_open_job_object_on_a_real_windows_host`. Rows at `windows_tree_best_effort` still use `taskkill` by process id, which misses descendants that left the tree.
 - On Windows, the CPU time limit and memory limit are enforced by the job object, but there is no open file limit.
 - A descendant that escapes the group and keeps the worker's stdout open is not detected. The run can finish while that process lives on.
 - `RLIMIT_CPU` and `RLIMIT_AS` apply per process, not to the whole tree.

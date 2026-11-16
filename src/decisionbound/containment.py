@@ -878,18 +878,27 @@ class OrphanReaper:
         return report
 
     def _examine_windows(self, row: dict) -> str:
-        """Windows orphan: kill through the job object when there is one, else by process id.
+        """Windows orphan: end the job object when one exists, else fall back to the process id.
 
-        A ``windows_job`` row is settled by the job, not by the leader. The leader may be
-        gone while descendants live on inside the job, so ``terminated`` is returned only
-        after the job reports no active processes. No job under that name means
-        kill-on-close already ended every member. The name is built from the stored
-        containment id only after it matches a plain token, so a tampered row cannot
-        name another object. Rows below ``windows_job`` keep the ``taskkill`` path,
-        which cannot see descendants that left the tree.
+        A process whose start token does not match the stored one is never touched, with or
+        without a job, because the process id was reused. For a ``windows_job`` row whose
+        job can still be opened by name, the job settles the row, not the leader: the
+        leader may be gone while descendants live on inside the job, so ``terminated`` is
+        returned only after the job reports no active processes. The name is built from
+        the stored containment id only after it matches a plain token, so a tampered row
+        cannot name another object. When no job can be opened (none exists, or the lookup
+        failed) the earlier behavior applies unchanged: a gone leader is ``gone`` for
+        ``windows_job`` rows and ``unconfirmed`` for weaker levels, and a live leader with
+        a matching token is stopped with ``taskkill /T``, which cannot see descendants that
+        left the tree. A failed job lookup with no live leader stays ``unconfirmed``.
 
-        Unit tested with fakes on every OS. The real Windows run is unverified.
+        Unit tested with fakes on every OS. The job lookup itself is unverified on a real
+        Windows host.
         """
+        live = process_identity(row["pid"])
+        if live is not None and live.start_token != row["start_token"]:
+            return "identity_mismatch"
+        lookup_failed = False
         if row["level"] == "windows_job":
             cid = row["containment_id"]
             if not isinstance(cid, str) or _CONTAINMENT_ID.fullmatch(cid) is None:
@@ -897,25 +906,21 @@ class OrphanReaper:
             try:
                 job = _WindowsJob.open_existing(_job_name(cid))
             except OSError:
-                return "unconfirmed"
-            if job is None:
-                live = process_identity(row["pid"])
-                return "unconfirmed" if live is not None and live.start_token == row["start_token"] else "gone"
-            try:
-                job.terminate()
-                end = time.monotonic() + _CONFIRM_SECONDS
-                while job.active_processes() > 0:
-                    if time.monotonic() > end:
-                        return "unconfirmed"
-                    time.sleep(_POLL_SECONDS)
-                return "terminated"
-            finally:
-                job.close()
-        live = process_identity(row["pid"])
+                job, lookup_failed = None, True
+            if job is not None:
+                try:
+                    job.terminate()
+                    end = time.monotonic() + _CONFIRM_SECONDS
+                    while job.active_processes() > 0:
+                        if time.monotonic() > end:
+                            return "unconfirmed"
+                        time.sleep(_POLL_SECONDS)
+                    return "terminated"
+                finally:
+                    job.close()
         if live is None:
-            return "unconfirmed"
-        if live.start_token != row["start_token"]:
-            return "identity_mismatch"
+            # A failed lookup cannot show that no job survives, so it is never "gone".
+            return "gone" if row["level"] == "windows_job" and not lookup_failed else "unconfirmed"
         subprocess.run(["taskkill", "/PID", str(row["pid"]), "/T", "/F"], capture_output=True)
         end = time.monotonic() + _CONFIRM_SECONDS
         while process_identity(row["pid"]) is not None and time.monotonic() < end:

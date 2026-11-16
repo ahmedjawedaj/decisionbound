@@ -127,12 +127,27 @@ def test_no_job_and_no_leader_means_kill_on_close_already_ran(windows):
     assert windows.opened == [C._job_name(CID)]
 
 
-def test_no_job_but_the_recorded_leader_is_alive_cannot_be_proven_clean(windows):
+def test_no_job_but_the_recorded_leader_is_alive_falls_back_to_taskkill(windows, monkeypatch):
     windows.live[4242] = C.ProcessIdentity(4242, "win:1")
+
+    def kill(argv, **kw):
+        windows.taskkills.append(argv)
+        windows.live.pop(4242)
+    monkeypatch.setattr(C.subprocess, "run", kill)
     result, registry, _ = reaper([row()])
     result.reap(leader_generation=2)
-    assert registry.marked == {CID: "unconfirmed"}
-    assert windows.taskkills == []
+    assert registry.marked == {CID: "terminated"}
+    assert windows.taskkills[0][:3] == ["taskkill", "/PID", "4242"]
+
+
+def test_a_reused_process_id_is_never_killed_with_or_without_a_job(windows, monkeypatch):
+    windows.live[4242] = C.ProcessIdentity(4242, "win:other")
+    windows.jobs[C._job_name(CID)] = FakeJob([3, 0])
+    monkeypatch.setattr(C.subprocess, "run", lambda argv, **kw: windows.taskkills.append(argv))
+    result, registry, _ = reaper([row()])
+    result.reap(leader_generation=2)
+    assert registry.marked == {CID: "identity_mismatch"}
+    assert windows.taskkills == [] and windows.jobs[C._job_name(CID)].terminated == 0
 
 
 def test_a_job_lookup_error_is_unconfirmed_not_gone(windows):
