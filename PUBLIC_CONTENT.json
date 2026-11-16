@@ -92,6 +92,7 @@
     "scripts/install_built_wheel.py",
     "scripts/profile_background.py",
     "scripts/release_roundtrip.py",
+    "scripts/require_executed.py",
     "scripts/soak_background.py",
     "scripts/stress_local_state.py",
     "scripts/sync_skills.py",
@@ -245,6 +246,7 @@
     "tests/unit/test_native_sprint05.py",
     "tests/unit/test_onboarding_sprint10.py",
     "tests/unit/test_profiles.py",
-    "tests/unit/test_provider_adapters.py"
+    "tests/unit/test_provider_adapters.py",
+    "tests/unit/test_require_executed.py"
   ]
 }
