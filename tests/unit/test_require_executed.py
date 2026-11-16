@@ -421,3 +421,68 @@ def test_cli_vsix_mode_with_source_package(tmp_path):
     vsix = _vsix(tmp_path / "a.vsix", GOOD_VSIX)
     assert guard.main(["vsix", "--source-package", str(_source(tmp_path / "s.json")), str(vsix)]) == 0
     assert guard.main(["vsix", "--source-package", str(_source(tmp_path / "s.json", version="2")), str(vsix)]) == 1
+
+
+# ---- node:test summary guard (the vscode-extension job) -------------------------------
+def _node_log(path: Path, *, tests=13, passed=None, fail=0, cancelled=0, skipped=0, todo=0, marker="#") -> Path:
+    passed = tests - fail - cancelled - skipped - todo if passed is None else passed
+    lines = [f"{marker} {k} {v}" for k, v in (("tests", tests), ("suites", 0), ("pass", passed), ("fail", fail),
+                                              ("cancelled", cancelled), ("skipped", skipped), ("todo", todo))]
+    path.write_text("TAP version 13\nok 1 - a\n1..%d\n" % tests + "\n".join(lines) + "\n# duration_ms 188.0\n",
+                    encoding="utf-8")
+    return path
+
+
+def test_node_tests_all_passing_meets_the_minimum(tmp_path):
+    log = _node_log(tmp_path / "n.log")
+    assert guard.check_node_tests(log, 13) == []
+    assert guard.main(["node", "--min-tests", "13", str(log)]) == 0
+
+
+@pytest.mark.parametrize("kwargs, word", [
+    (dict(skipped=1), "skipped"), (dict(todo=1), "todo"), (dict(fail=1), "fail"), (dict(cancelled=2), "cancelled")])
+def test_node_tests_skips_todos_failures_and_cancellations_are_rejected(tmp_path, kwargs, word):
+    problems = guard.check_node_tests(_node_log(tmp_path / "n.log", **kwargs), 1)
+    assert any(word in p for p in problems), problems
+
+
+def test_node_tests_below_the_minimum_or_empty_run_is_rejected(tmp_path):
+    assert guard.check_node_tests(_node_log(tmp_path / "n.log", tests=12), 13)
+    assert guard.check_node_tests(_node_log(tmp_path / "z.log", tests=0), 1)
+
+
+def test_node_tests_missing_summary_or_missing_log_is_rejected(tmp_path):
+    empty = tmp_path / "e.log"
+    empty.write_text("npm warn something\n", encoding="utf-8")
+    assert any("summary" in p for p in guard.check_node_tests(empty, 1))
+    assert guard.check_node_tests(tmp_path / "absent.log", 1)
+
+
+def test_node_tests_passed_count_must_equal_tests_run(tmp_path):
+    assert guard.check_node_tests(_node_log(tmp_path / "n.log", tests=13, passed=12), 1)
+
+
+def test_node_tests_spec_reporter_summary_and_ansi_colour_are_understood(tmp_path):
+    log = _node_log(tmp_path / "n.log", marker="ℹ")
+    assert guard.check_node_tests(log, 13) == []
+    coloured = tmp_path / "c.log"
+    coloured.write_text("\x1b[34mℹ tests 13\x1b[39m\n\x1b[34mℹ pass 13\x1b[39m\nℹ fail 0\n"
+                        "ℹ cancelled 0\nℹ skipped 0\nℹ todo 0\n", encoding="utf-8")
+    assert guard.check_node_tests(coloured, 13) == []
+
+
+def test_node_min_tests_must_be_positive(tmp_path):
+    log = _node_log(tmp_path / "n.log")
+    assert guard.main(["node", "--min-tests", "0", str(log)]) == 2
+    assert guard.main(["node", str(log)]) == 2
+
+
+def test_ci_vscode_extension_job_runs_the_node_guard():
+    """The job must capture npm test output and fail when the guard rejects it."""
+    import yaml
+    jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))["jobs"]
+    steps = jobs["vscode-extension"]["steps"]
+    text = "\n".join(str(step.get("run", "")) for step in steps)
+    assert "npm test" in text and "require_executed.py node" in text and "--min-tests" in text
+    assert "pipefail" in text or any(step.get("shell") == "bash" for step in steps), \
+        "a piped npm test must not hide its exit status"

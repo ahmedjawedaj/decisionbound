@@ -12,6 +12,9 @@ Modes:
   log     Require literal markers in a captured log and reject forbidden regexes.
           Used for the real VS Code Extension Development Host run, which prints
           no JUnit file.
+  node    Read captured `node --test` output (TAP or spec reporter). The summary must
+          be present, at least --min-tests tests must have run, every one must have
+          passed, and the fail, cancelled, skipped and todo counts must all be zero.
   vsix    Require the packaged VSIX to be a real zip with a non-empty archive
           manifest, [Content_Types].xml, a package.json object whose identity
           matches --source-package, and an entry point holding real code.
@@ -193,6 +196,38 @@ def check_report(report_path, required_checks, required_flags, expect=()) -> lis
     return problems
 
 
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
+_NODE_SUMMARY = re.compile(r"^\s*(?:#|\u2139)\s+(tests|pass|fail|cancelled|skipped|todo)\s+(\d+)\s*$", re.M)
+
+
+def check_node_tests(log_path, min_tests: int) -> list[str]:
+    """Verify a captured ``node --test`` run really executed tests and skipped none.
+
+    ``node --test`` exits 0 when every test is skipped or marked todo, and when a
+    glob selects few files, so the exit status alone cannot prove the job ran its
+    tests. Both the TAP summary (``# pass 13``) and the spec reporter summary
+    (``\u2139 pass 13``) are read, with colour codes removed. The last summary wins.
+    """
+    path = Path(log_path)
+    if not path.is_file():
+        return [f"Node test log not found: {path} (the test step did not capture output)"]
+    counts: dict[str, int] = {}
+    for key, value in _NODE_SUMMARY.findall(_ANSI.sub("", _read_text(path))):
+        counts[key] = int(value)
+    missing = [key for key in ("tests", "pass", "fail", "cancelled", "skipped", "todo") if key not in counts]
+    if missing:
+        return [f"No node:test summary in {path}: missing {', '.join(missing)} (tests did not run to the end)"]
+    problems = []
+    if counts["tests"] < min_tests:
+        problems.append(f"node:test ran {counts['tests']} test(s), expected at least {min_tests}")
+    for key in ("fail", "cancelled", "skipped", "todo"):
+        if counts[key]:
+            problems.append(f"node:test reported {counts[key]} {key} test(s)")
+    if counts["pass"] != counts["tests"]:
+        problems.append(f"node:test passed {counts['pass']} of {counts['tests']} test(s)")
+    return problems
+
+
 MIN_ENTRY_CODE_CHARS = 32
 _COMMENTS = re.compile(r"/\*.*?\*/|//[^\n]*", re.S)
 
@@ -266,6 +301,10 @@ def _parser() -> argparse.ArgumentParser:
     log.add_argument("--forbid", action="append", default=[], metavar="REGEX",
                      help="regular expression that must NOT match anywhere in the log (repeatable)")
     log.add_argument("logfile")
+    node = sub.add_parser("node", help="verify captured `node --test` output ran tests and skipped none")
+    node.add_argument("--min-tests", type=int, default=None, metavar="N",
+                      help="minimum number of tests that must have run and passed")
+    node.add_argument("logfile")
     vsix = sub.add_parser("vsix", help="verify a packaged VSIX archive")
     vsix.add_argument("--source-package", metavar="PACKAGE_JSON",
                       help="source package.json whose name, publisher and version the VSIX must carry")
@@ -308,6 +347,12 @@ def main(argv=None) -> int:
             return 2
         problems = check_log(args.logfile, args.marker, args.forbid)
         ok = f"OK: {len(args.marker)} execution marker(s) found, no forbidden output"
+    elif args.mode == "node":
+        if args.min_tests is None or args.min_tests < 1:
+            print("usage error: give a positive --min-tests", file=sys.stderr)
+            return 2
+        problems = check_node_tests(args.logfile, args.min_tests)
+        ok = f"OK: node:test ran at least {args.min_tests} tests with no failures, skips or todos"
     elif args.mode == "vsix":
         problems = check_vsix(args.vsixfile, args.source_package)
         ok = "OK: VSIX is a real archive with manifest, identity and entry point"
