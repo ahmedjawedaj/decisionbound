@@ -1,0 +1,95 @@
+{
+  "name": "decisionbound-local",
+  "displayName": "DecisionBound Local",
+  "description": "Read-only local workflows, evidence, and approvals across the DecisionBound CLI and web runtime",
+  "version": "0.13.0-alpha.1",
+  "publisher": "decisionbound-local",
+  "private": true,
+  "engines": {
+    "vscode": "^1.93.0"
+  },
+  "categories": [
+    "Other",
+    "Testing"
+  ],
+  "main": "./src/extension.js",
+  "activationEvents": [
+    "onView:decisionbound.sessions"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "decisionbound.connect",
+        "title": "DecisionBound: Pair Local Runtime"
+      },
+      {
+        "command": "decisionbound.setupStatus",
+        "title": "DecisionBound: Check Local Setup"
+      },
+      {
+        "command": "decisionbound.refresh",
+        "title": "DecisionBound: Refresh Sessions"
+      },
+      {
+        "command": "decisionbound.inspectSession",
+        "title": "DecisionBound: Inspect Session"
+      },
+      {
+        "command": "decisionbound.showChanges",
+        "title": "DecisionBound: View Session Events"
+      },
+      {
+        "command": "decisionbound.disconnect",
+        "title": "DecisionBound: Forget Local Pairing Token"
+      }
+    ],
+    "views": {
+      "explorer": [
+        {
+          "id": "decisionbound.sessions",
+          "name": "DecisionBound Sessions"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "DecisionBound Local",
+      "properties": {
+        "decisionbound.localUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:8765",
+          "description": "Authenticated loopback URL only. Remote URLs are refused."
+        },
+        "decisionbound.pollSeconds": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 30,
+          "default": 5,
+          "description": "Poll interval while a session is actively selected."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "test": "node --test test/*.test.cjs",
+    "check": "node --check src/client.js && node --check src/extension.js",
+    "test:host": "node test/host/runner.cjs",
+    "package:vsix": "node -e \"require('node:fs').mkdirSync('dist', {recursive:true})\" && npx --yes @vscode/vsce@3 package --out dist/decisionbound-local.vsix"
+  },
+  "license": "Apache-2.0",
+  "author": "Ahmed Jawed and contributors",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ahmedjawedaj/decisionbound.git",
+    "directory": "apps/vscode"
+  },
+  "homepage": "https://ahmedjawedaj.github.io/decisionbound/local-clients.html",
+  "bugs": {
+    "url": "https://github.com/ahmedjawedaj/decisionbound/issues"
+  },
+  "keywords": [
+    "decisionbound",
+    "ai-agents",
+    "local-workflows",
+    "verification"
+  ]
+}

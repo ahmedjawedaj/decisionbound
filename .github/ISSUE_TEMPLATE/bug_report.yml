@@ -1,0 +1,24 @@
+name: Bug report
+description: Report a reproducible failure.
+title: "[Bug] "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: "Do not post private data or secrets. Use the Security tab for sensitive vulnerabilities."
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction and versions
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Redacted logs and test evidence

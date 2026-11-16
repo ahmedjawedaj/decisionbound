@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DecisionBound shareable profile bundle proposal",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "kind",
+    "id",
+    "revision",
+    "settings",
+    "credential_refs"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "kind": {
+      "enum": [
+        "connection-preset",
+        "execution-profile"
+      ]
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]{1,63}$"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "label": {
+      "type": "string"
+    },
+    "extends": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "scope": {
+      "enum": [
+        "personal",
+        "project",
+        "team",
+        "organization"
+      ]
+    },
+    "settings": {
+      "type": "object"
+    },
+    "credential_refs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^(env|keychain|secret-manager):[A-Za-z0-9_.:-]+$"
+      }
+    },
+    "origin": {
+      "type": "string"
+    },
+    "license": {
+      "type": "string"
+    },
+    "digest": {
+      "type": "string"
+    },
+    "required_capabilities": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

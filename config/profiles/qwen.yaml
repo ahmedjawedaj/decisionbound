@@ -1,0 +1,18 @@
+schema_version: '1.0'
+kind: connection-preset
+id: qwen
+label: Qwen
+provider:
+  driver: openai-compatible
+  credential_ref: env:QWEN_API_KEY
+  model_selection: user-select
+  base_url: null
+harness:
+  adapter: builtin
+  requires_installed_adapter: true
+default_execution:
+  workers: 1
+  allow_write_tools: false
+  max_cost_usd: 0
+  network_permission: ask
+notes: configured Qwen endpoint required

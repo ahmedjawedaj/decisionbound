@@ -1,0 +1,21 @@
+# Read-only submission is safe. It does NOT enable coding, test commands,
+# network, credentials, or write permission by itself.
+schema_version: 1
+max_workers: 2
+max_total_cost_usd: 0
+tasks:
+  - task_id: plan
+    kind: prepare
+    role: planner
+    description: Identify relevant source files and approved engineering constraints
+    max_context_tokens: 1200
+  - task_id: implement
+    kind: code
+    role: implementer
+    description: Make the bounded change specified by the separately approved task contract
+    depends_on: [plan]
+  - task_id: audit
+    kind: review
+    role: reviewer
+    description: Independently revalidate the host-recorded code/test receipts
+    depends_on: [implement]

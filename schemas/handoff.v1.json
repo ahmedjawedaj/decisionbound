@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:decisionbound:schemas:handoff.v1.json",
+  "title": "Handoff",
+  "description": "Proposed v1 contract; not yet released as runtime API.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "task_id",
+    "sender_id",
+    "receiver_role",
+    "context_capsule_ref",
+    "mandatory_constraint_ids",
+    "evidence_refs",
+    "next_actions",
+    "stop_conditions",
+    "remaining_budget_usd"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "task_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sender_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "receiver_role": {
+      "type": "string",
+      "minLength": 1
+    },
+    "context_capsule_ref": {
+      "type": "string",
+      "minLength": 1
+    },
+    "mandatory_constraint_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "accepted_decision_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "rejected_decision_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "evidence_refs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "next_actions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "stop_conditions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "remaining_budget_usd": {
+      "type": "number",
+      "minimum": 0
+    }
+  }
+}

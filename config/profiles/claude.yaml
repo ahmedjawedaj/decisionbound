@@ -1,0 +1,18 @@
+schema_version: '1.0'
+kind: connection-preset
+id: claude
+label: Claude
+provider:
+  driver: anthropic
+  credential_ref: env:ANTHROPIC_API_KEY
+  model_selection: discover
+  base_url: null
+harness:
+  adapter: claude-agent-sdk
+  requires_installed_adapter: true
+default_execution:
+  workers: 1
+  allow_write_tools: false
+  max_cost_usd: 0
+  network_permission: ask
+notes: requires auth or supported harness sign-in

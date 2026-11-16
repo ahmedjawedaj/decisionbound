@@ -1,0 +1,21 @@
+schema_version: 1
+max_workers: 2
+max_total_cost_usd: 0
+# A fully offline, read-only graph. Verified stage != completed user task.
+tasks:
+  - task_id: examine
+    kind: prepare
+    role: researcher
+    description: Identify existing repository architecture decisions and constraints
+    max_context_tokens: 1200
+  - task_id: inspect_tests
+    kind: prepare
+    role: tester
+    description: Identify available test and verification instructions
+    max_context_tokens: 1200
+  - task_id: recommend
+    kind: prepare
+    role: reviewer
+    description: Prepare evidence relevant to the architecture and test review
+    depends_on: [examine, inspect_tests]
+    max_context_tokens: 1200

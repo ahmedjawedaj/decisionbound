@@ -1,0 +1,19 @@
+cff-version: 1.2.0
+message: "If you use DecisionBound, please cite this software and identify the version or commit."
+type: software
+title: "DecisionBound: Evidence-grounded engineering judgment for AI agents"
+authors:
+  - family-names: Jawed
+    given-names: Ahmed
+repository-code: "https://github.com/ahmedjawedaj/decisionbound"
+url: "https://ahmedjawedaj.github.io/decisionbound/"
+version: 0.13.0a1
+license: Apache-2.0
+abstract: "An experimental local-first Python SDK and CLI for provenance-bearing engineering decisions, conservative cross-repository transfer, bounded agent workflows and independently checked evidence."
+keywords:
+  - agent-orchestration
+  - context-engineering
+  - decision-transfer
+  - verification
+  - reproducibility
+  - model-context-protocol

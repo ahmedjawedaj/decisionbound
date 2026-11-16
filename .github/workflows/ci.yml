@@ -1,0 +1,244 @@
+name: DecisionBound CI — runtime, contracts, docs and research baseline
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  python:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ['3.11', '3.12', '3.13']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install with optional test and web extras
+        run: python -m pip install -e '.[test,web,docs,release]'
+      - name: Compile sources
+        run: python -m compileall -q src/decisionbound
+      - name: Execute tests
+        run: python -m pytest -q tests/unit tests/integration tests/security tests/contract --cov=decisionbound --cov-report=term-missing --cov-fail-under=80
+      - name: Bounded local-state durability stress
+        run: python scripts/stress_local_state.py --writers 4 --events-per-writer 100 --backups 2
+      - name: Local background coordinator endurance smoke
+        run: |
+          python -m pytest -q tests/integration/test_background_coordinator_sprint13.py
+          python scripts/profile_background.py --workflows 3 --tasks 5
+          python scripts/soak_background.py --seconds 2 --poll-seconds 0.5
+      - name: Check reviewed public content
+        run: python scripts/check_publication.py
+      - name: Generate and verify site
+        run: |
+          python scripts/generate_api_docs.py
+          python scripts/build_site.py
+          python scripts/verify_docs.py
+          python scripts/check_docs.py
+      - name: Build installable wheel
+        run: python -m pip wheel . --no-deps -w dist
+      - name: Independently verify reproducible release archives
+        run: python scripts/release_roundtrip.py
+  mcp-protocol:
+    # Official MCP Python SDK v2 requires an online dependency resolver here.
+    # This job is mandatory in CI; local dev without the extra explicitly skips.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install real MCP v2 SDK and test dependencies
+        run: python -m pip install -e '.[mcp,test]'
+      - name: Exercise actual in-memory MCP protocol client
+        run: python -m pytest -q tests/integration/test_mcp_v2_optional.py
+  static-demo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Existing concept-site behavior tests
+        run: |
+          node --check docs/demo.js
+          node --test tests/site-demo.test.mjs
+# Paid provider calls, remote MCP connections, and unapproved deployments are forbidden in CI.
+# Before stable release, pin externally maintained actions to reviewed commit SHAs.
+  client-loopback-http:
+    # Real Node HTTP requests against an authenticated Uvicorn subprocess.
+    # This validates the same endpoint/protocol the read-only extension uses,
+    # but is not a real VS Code Extension Development Host certification.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install local sync and test dependencies
+        run: python -m pip install -e '.[web,test]'
+      - name: Test real loopback client-to-API session replay
+        env:
+          DBOUND_LOOPBACK_HTTP_TEST: '1'
+        run: python -m pytest -q tests/integration/test_client_loopback_sprint09_optional.py tests/integration/test_setup_loopback_sprint10_optional.py
+  vscode-extension:
+    # No npm network install required. This is a real extension entry source,
+    # but CI mocks the VS Code host until an Extension Development Host test runs.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate VS Code extension entry and local protocol
+        working-directory: apps/vscode
+        run: |
+          npm run check
+          npm test
+  docker-code-sandbox:
+    # Connected CI provides Docker; local development may skip this suite.
+    # This proves one real network-disabled, non-root container test path.
+    # Image tags must be replaced with reviewed immutable digests for release.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install local package and tests
+        run: python -m pip install -e '.[test]'
+      - name: Pre-pull approved test image
+        run: docker pull python:3.12-slim
+      - name: Exercise real Docker coding run and unchanged source checkout
+        env:
+          DBOUND_DOCKER_TEST_IMAGE: python:3.12-slim
+        run: python -m pytest -q tests/integration/test_docker_real_optional.py tests/integration/test_supervised_docker_real_optional.py
+  wheel-clean-install:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Build from source
+        run: python -m pip wheel . --no-deps --wheel-dir dist
+      - name: Install wheel as end user
+        run: python scripts/install_built_wheel.py
+      - name: CLI and SDK import smoke
+        run: |
+          dbound --help
+          dbound code --help
+          dbound client capabilities
+          dbound client pair
+          python -c "from decisionbound.code_execution import run_coding_task; from decisionbound.code_sandbox import DockerTestRunner; print('imports OK')"
+
+  browser-review-dom:
+    # Real Chromium DOM check with HTTP mocked. The browser-to-server local
+    # navigation test remains a separate connected-host gate.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install local API, pytest and Playwright
+        run: python -m pip install -e '.[test,web]' playwright
+      - name: Install review browser and system dependencies
+        run: python -m playwright install --with-deps chromium
+      - name: Test review interactions against mocked API in a real browser
+        env:
+          DBOUND_BROWSER_TEST: '1'
+        run: python -m pytest -q tests/integration/test_review_ui_offline_sprint08_optional.py tests/integration/test_client_browser_sprint09_optional.py tests/integration/test_setup_browser_sprint10_optional.py
+
+  vscode-real-host:
+    # Connected host certification. This actually starts a VS Code Electron
+    # process (not just the mocked vscode API used by npm test).
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install real VS Code host harness
+        working-directory: apps/vscode
+        run: npm install --no-save @vscode/test-electron@2
+      - name: Start Electron Extension Development Host and inspect commands
+        working-directory: apps/vscode
+        run: xvfb-run -a npm run test:host
+
+  vscode-package:
+    # Packaging is not Marketplace publication or a signed trust assertion.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Local extension tests
+        working-directory: apps/vscode
+        run: npm test
+      - name: Build a reviewable VSIX artifact
+        working-directory: apps/vscode
+        run: npm run package:vsix
+      - uses: actions/upload-artifact@v4
+        with:
+          name: decisionbound-local-vsix
+          path: apps/vscode/dist/decisionbound-local.vsix
+
+  browser-to-server:
+    # Real Chromium->Uvicorn->SQLite. Unlike mocked DOM checks, this will fail
+    # if a browser cannot authenticate and load project-scoped sessions.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install API and real browser test dependencies
+        run: python -m pip install -e '.[test,web]' playwright
+      - name: Install Chromium runtime
+        run: python -m playwright install --with-deps chromium
+      - name: Test true browser-to-server protocol
+        env:
+          DBOUND_BROWSER_LIVE: '1'
+        run: python -m pytest -q tests/integration/test_browser_live_sprint10_optional.py
+
+  integration-gate:
+    name: integration-gate
+    if: ${{ always() }}
+    needs: [python, mcp-protocol, static-demo, client-loopback-http, vscode-extension, docker-code-sandbox, wheel-clean-install, browser-review-dom, vscode-real-host, vscode-package, browser-to-server]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every integration job to pass
+        env:
+          JOB_RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python - <<'PYCODE'
+          import json, os
+          results = json.loads(os.environ["JOB_RESULTS"])
+          failed = {name: job["result"] for name, job in results.items() if job["result"] != "success"}
+          print(failed or "All required jobs passed")
+          assert not failed, "Integration certification is incomplete"
+          PYCODE

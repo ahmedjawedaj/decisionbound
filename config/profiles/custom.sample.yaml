@@ -1,0 +1,23 @@
+schema_version: '1.0'
+kind: execution-profile
+id: engineering-verified
+label: Verified Engineering
+extends: codex
+revision: 1
+scope: personal
+settings:
+  routing:
+    task_topology: single
+    explain_choices: true
+  orchestration:
+    max_workers: 2
+    reserve_verifier_budget_fraction: 0.25
+  coding_guardrails:
+    assumptions: risk-based
+    diff_policy: surgical
+    regression_test_first: where-feasible
+    verify_loop: bounded
+  safety:
+    max_cost_usd_per_task: 0
+    default_write_permission: ask
+# No API key, token, trace, private memory, personal identity, or shell hooks.

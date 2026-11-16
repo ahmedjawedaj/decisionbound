@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://decisionbound.example/schemas/coding-run.v1.json",
+  "title": "DecisionBound Coding Run Receipt v1",
+  "description": "An isolated coding run outcome; verification never implies semantic task completion.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run_id",
+    "base_commit",
+    "patch_sha256",
+    "diff_sha256",
+    "changed_paths",
+    "patch_artifact",
+    "acceptance_verified",
+    "task_completed",
+    "verification_reason",
+    "tests"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^code_[a-f0-9]{32}$"
+    },
+    "base_commit": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40,64}$"
+    },
+    "patch_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "diff_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "changed_paths": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "items": {
+        "type": "string"
+      }
+    },
+    "patch_artifact": {
+      "type": "string"
+    },
+    "acceptance_verified": {
+      "type": "boolean"
+    },
+    "task_completed": {
+      "const": false
+    },
+    "verification_reason": {
+      "type": "string"
+    },
+    "tests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "kind",
+          "command",
+          "exit_code",
+          "timed_out",
+          "duration_ms",
+          "stdout_sha256",
+          "stderr_sha256",
+          "output_truncated"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "docker",
+              "mock",
+              "static"
+            ]
+          },
+          "command": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "exit_code": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "timed_out": {
+            "type": "boolean"
+          },
+          "duration_ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "stdout_sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "stderr_sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "output_truncated": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  }
+}

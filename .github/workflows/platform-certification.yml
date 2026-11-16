@@ -1,0 +1,91 @@
+name: Installed release certification — Windows, Linux, macOS, VS Code
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  installed-cli:
+    name: Real installed wheel / ${{ matrix.os }} / Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Python runtime and local API dependencies
+        run: python -m pip install 'typer>=0.9' 'PyYAML>=6' 'fastapi>=0.100' 'uvicorn>=0.20'
+      - name: Build candidate wheel (not editable)
+        run: python -m pip wheel . --no-deps --wheel-dir dist
+      - name: Install built wheel into runner Python
+        run: python scripts/install_built_wheel.py --no-deps
+      - name: Certify real CLI and real local Node↔Uvicorn HTTP
+        run: python scripts/certify_platform.py --http-node
+  vscode-real-host-cross-os:
+    # Downloads a real VS Code host and launches the extension in Electron.
+    # Linux uses Xvfb; Windows runs in the hosted desktop environment.
+    name: Real VS Code extension host / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Offline extension contract tests
+        working-directory: apps/vscode
+        run: npm test
+      - name: Install VS Code host and VSIX packager
+        working-directory: apps/vscode
+        run: npm install --no-save @vscode/test-electron@2 @vscode/vsce@3
+      - name: Launch genuine Extension Development Host
+        working-directory: apps/vscode
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            xvfb-run -a npm run test:host
+          else
+            npm run test:host
+          fi
+      - name: Build VSIX from package metadata
+        working-directory: apps/vscode
+        run: npm run package:vsix
+      - name: Upload extension install artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vscode-vsix-${{ matrix.os }}
+          path: apps/vscode/dist/decisionbound-local.vsix
+          if-no-files-found: error
+# Never load production credentials or authorize model spending in this job.
+# Passing this test does not certify Docker isolation, MCP v2, vendor CLIs,
+# true GUI review flows, or semantic correctness of arbitrary coding tasks.
+
+  platform-gate:
+    name: platform-gate
+    if: ${{ always() }}
+    needs: [installed-cli, vscode-real-host-cross-os]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every integration job to pass
+        env:
+          JOB_RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python - <<'PYCODE'
+          import json, os
+          results = json.loads(os.environ["JOB_RESULTS"])
+          failed = {name: job["result"] for name, job in results.items() if job["result"] != "success"}
+          print(failed or "All required jobs passed")
+          assert not failed, "Integration certification is incomplete"
+          PYCODE

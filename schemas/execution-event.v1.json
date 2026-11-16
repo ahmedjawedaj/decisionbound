@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:decisionbound:schemas:execution-event.v1.json",
+  "title": "ExecutionEvent",
+  "description": "Proposed v1 contract; not yet released as runtime API.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run_id",
+    "event_id",
+    "sequence",
+    "time",
+    "event_type",
+    "artifact_refs",
+    "cost_usd"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "event_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "event_type": {
+      "enum": [
+        "planned",
+        "context_compiled",
+        "tool_dispatched",
+        "tool_confirmed",
+        "tool_unknown",
+        "tool_failed",
+        "verified",
+        "approval_requested",
+        "approval_granted",
+        "approval_denied",
+        "recovered",
+        "quarantined",
+        "completed"
+      ]
+    },
+    "operation_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "artifact_refs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "details_ref": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "cost_usd": {
+      "type": "number",
+      "minimum": 0
+    }
+  }
+}

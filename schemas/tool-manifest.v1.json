@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:decisionbound:schemas:tool-manifest.v1.json",
+  "title": "ToolManifest",
+  "description": "Proposed v1 contract; not yet released as runtime API.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "tool_id",
+    "schema_ref",
+    "name",
+    "side_effect",
+    "idempotency",
+    "auth_scope",
+    "timeout_ms",
+    "max_output_bytes",
+    "defer_schema"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "tool_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "schema_ref": {
+      "type": "string",
+      "minLength": 1
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "side_effect": {
+      "enum": [
+        "none",
+        "local_write",
+        "external_write",
+        "high_risk"
+      ]
+    },
+    "idempotency": {
+      "enum": [
+        "idempotent",
+        "conditional",
+        "not_idempotent",
+        "unknown"
+      ]
+    },
+    "auth_scope": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "timeout_ms": {
+      "type": "integer",
+      "minimum": 100
+    },
+    "max_output_bytes": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "cost_hint_usd": {
+      "type": "number",
+      "minimum": 0
+    },
+    "defer_schema": {
+      "type": "boolean"
+    }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://decisionbound.dev/schemas/project-identity.v1.json",
+  "title": "Portable DecisionBound Project Identity Manifest (untrusted metadata)",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "project_id": {"type": "string", "pattern": "^prj_[A-Z0-9]{20,32}$"},
+    "name": {"type": "string", "minLength": 1, "maxLength": 120}
+  },
+  "required": ["schema_version", "project_id", "name"]
+}

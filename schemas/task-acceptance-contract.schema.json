@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DecisionBound operator-authored task acceptance contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "contract_id", "allowed_paths", "required_paths", "test_commands", "assertions"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "contract_id": {"type": "string", "minLength": 3, "maxLength": 80, "pattern": "^[A-Za-z0-9_-]+$"},
+    "allowed_paths": {"type": "array", "minItems": 1, "maxItems": 8, "uniqueItems": true, "items": {"type": "string"}},
+    "required_paths": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
+    "test_commands": {"type": "array", "minItems": 1, "maxItems": 5, "items": {"type": "array", "minItems": 1, "items": {"type": "string"}}},
+    "assertions": {"type": "array", "minItems": 1, "maxItems": 12, "items": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "contains", "excludes"],
+      "properties": {"path": {"type": "string"}, "contains": {"type": "string", "maxLength": 256}, "excludes": {"type": "string", "maxLength": 256}}
+    }}
+  }
+}

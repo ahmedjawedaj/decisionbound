@@ -1,0 +1,18 @@
+schema_version: '1.0'
+kind: connection-preset
+id: local-safe
+label: Local-Safe
+provider:
+  driver: offline
+  credential_ref: null
+  model_selection: null
+  base_url: null
+harness:
+  adapter: dry-run
+  requires_installed_adapter: false
+default_execution:
+  workers: 1
+  allow_write_tools: false
+  max_cost_usd: 0
+  network_permission: deny
+notes: no paid calls or external tools

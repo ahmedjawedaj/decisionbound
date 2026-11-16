@@ -1,0 +1,52 @@
+name: Release readiness
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: readiness-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  quality-gate:
+    name: quality-gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install test, web, documentation, release and MCP dependencies
+        run: python -m pip install -e '.[test,web,docs,release,mcp]'
+      - name: Python regressions and coverage
+        run: python -m pytest -q --cov=decisionbound --cov-report=term --cov-fail-under=80
+      - name: Check reviewed public content
+        run: python scripts/check_publication.py
+      - name: Generate and verify static documentation
+        run: |
+          python scripts/generate_api_docs.py
+          python scripts/build_site.py
+          python scripts/verify_docs.py
+          python scripts/check_docs.py
+      - name: Concept demo tests
+        run: node --test tests/site-demo.test.mjs
+      - name: Extension source and contract tests
+        working-directory: apps/vscode
+        run: |
+          npm run check
+          npm test
+      - name: Build wheel
+        run: python -m pip wheel . --no-deps --wheel-dir dist
+      - name: Verify reproducible release packages
+        run: python scripts/release_roundtrip.py
+      - name: Retain candidate artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: verified-wheel
+          path: dist/*.whl
+          if-no-files-found: error

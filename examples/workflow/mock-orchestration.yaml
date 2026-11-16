@@ -1,0 +1,12 @@
+schema_version: 1
+max_workers: 3
+max_total_cost_usd: 0
+# Simulated outcome never counts as independent verification.
+tasks:
+  - task_id: baseline
+    kind: prepare
+    description: Prepare context for a baseline comparison
+  - task_id: synthetic_worker
+    kind: mock
+    role: implementer
+    description: Simulated task (not actual code execution)

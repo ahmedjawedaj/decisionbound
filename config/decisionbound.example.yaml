@@ -1,0 +1,183 @@
+# Illustrative future configuration. Not consumed by a working runtime.
+schema_version: '1.0'
+profile: local-safe
+mode: offline
+state:
+  driver: sqlite
+  dsn: ~/.local/share/decisionbound/decisionbound.db
+  migration_policy: explicit
+artifacts:
+  driver: filesystem
+  path: ~/.local/share/decisionbound/artifacts
+retrieval:
+  mode: lexical
+  index: sqlite-fts
+  vector_backend: null
+  embedding_provider: null
+  max_candidates: 24
+llm:
+  enabled: false
+  default_provider: null
+  roles:
+    extractor: null
+    planner: null
+    executor: null
+    reviewer: null
+    summarizer: null
+  routing: capability_cost_latency
+  fallback_requires_policy_approval: true
+harness:
+  primary: dry-run
+  adapters:
+  - dry-run
+orchestration:
+  policy: single-worker
+  max_workers: 1
+  max_handoffs: 2
+  max_steps: 25
+  max_repairs: 3
+  max_parallel_workers: 1
+  max_spawn_depth: 1
+  max_context_handoffs: 2
+  reserve_verifier_budget_fraction: 0.25
+  unbounded_swarm: false
+context:
+  strategy: selective
+  max_input_tokens: 12000
+  preserve_protected_constraints: true
+  lazy_skill_bodies: true
+  lazy_tool_schemas: true
+skills:
+  sources:
+  - local
+  external_install: deny
+  auto_activate: conservative
+tools:
+  allowed_scopes:
+  - repo.read
+  default_side_effect_policy: deny
+  timeout_seconds: 30
+mcp:
+  server_enabled: false
+  transport: stdio
+  permissions: read-only
+memory:
+  scopes:
+  - project
+  - personal
+  cross_org_transfer: deny
+  candidate_promotion: human-review
+  retention_days: 90
+cache:
+  driver: local
+  ttl_seconds: 3600
+telemetry:
+  sink: local-json
+  remote_export: false
+  redact_secrets: true
+safety:
+  default_network: deny
+  max_cost_usd_per_task: 0
+  sandbox: local-isolated
+  approvals:
+  - public-write
+  - remote-write
+  - paid-inference
+  - cross-org-export
+routing:
+  strategy: deterministic-first
+  task_topology: single
+  harness_selection: capability-and-conformance
+  model_selection: capability-quality-cost-latency
+  skill_selection: lazy-allowlisted
+  tool_selection: lazy-scoped
+  fallback_requires_approval_on_boundary_change: true
+  explain_choices: true
+dispatcher:
+  driver: local-inline
+  state_backend: state
+  durable_events: true
+  max_inflight_tasks: 1
+  max_attempts: 2
+  lease_seconds: 120
+  heartbeat_seconds: 30
+  retry_writes: reconcile-or-quarantine
+  distributed_backend: null
+
+# Proposed local UI/IDE service; disabled unless explicitly started.
+control_api:
+  enabled: false
+  bind_host: 127.0.0.1
+  bind_port: 8765
+  transport: http-sse
+  auth: local-session-token
+  require_origin_allowlist: true
+  resumable_event_cursor: true
+surfaces:
+  cli:
+    interactive: true
+    headless_json: true
+  web:
+    enabled: false
+    mode: local-only
+  vscode:
+    enabled: false
+    client_only: true
+
+# v1.4 proposals only; not consumed by any runtime yet.
+identity:
+  mode: local-os-user
+  project_manifest: .decisionbound/project.yaml
+  registry_binding: verified-repository
+  collision_policy: require-explicit-resolution
+  remote_account: null
+  device_pairing: false
+  personal_profile_transfer: consent-only
+integrations:
+  mcp_client:
+    enabled: false
+    transports: [stdio, streamable-http]
+    import: [tools, resources, prompts]
+    external_skills_extension: opt-in-if-supported
+    remote_servers: []
+    tool_install_policy: allowlist-and-approval
+  mcp_export:
+    enabled: false
+    tools: [project_status, explain_decision, preview_transfer, run_trace]
+    default_write_policy: deny
+  agent_skills:
+    import_sources: [local, claude, codex]
+    lazy_load: true
+    execute_unreviewed_scripts: false
+  codex:
+    integration: mcp-read-only
+    native_session_sync: false
+    app_server_adapter: disabled
+io:
+  max_inline_bytes: 65536
+  artifacts_backend: configured-artifacts
+  default_output: human-readable
+  machine_outputs: [json, ndjson]
+  mime_allowlist: [text/plain, text/markdown, application/json, text/x-python, text/x-diff]
+synchronization:
+  local_runtime_discovery: authenticated-socket-or-loopback
+  run_event_cursor: true
+  optimistic_concurrency: true
+  remote_devices: disabled
+  client_pairing_required: true
+
+# v1.5 specification only; profiles are not interpreted by a working runtime.
+profile_manager:
+  selected: local-safe
+  registry: user-and-project-local
+  version_pin_active_runs: true
+  share_requires_review: true
+  allow_credential_values_in_exports: false
+  client_sync: authenticated-control-api
+  import_policy: validate-digest-then-approve
+coding_guardrails:
+  assumptions: risk-based
+  diff_policy: surgical
+  regression_test_first: where-feasible
+  verification: independent-after-local-tests
+  max_repair_attempts: 3

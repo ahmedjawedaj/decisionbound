@@ -1,0 +1,18 @@
+schema_version: '1.0'
+kind: connection-preset
+id: local
+label: Local
+provider:
+  driver: ollama
+  credential_ref: null
+  model_selection: discover
+  base_url: http://127.0.0.1:11434
+harness:
+  adapter: builtin
+  requires_installed_adapter: true
+default_execution:
+  workers: 1
+  allow_write_tools: false
+  max_cost_usd: 0
+  network_permission: ask
+notes: local endpoint defaults to loopback
