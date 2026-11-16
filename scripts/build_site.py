@@ -41,7 +41,7 @@ PAGES = [
     ("API reference", "api-reference.md"),
     ("Security", "security.md"),
     ("Research", "research.md"),
-    ("TransferBench runner", "transferbench-runner.md"),
+    ("CarryBench runner", "transferbench-runner.md"),
     ("Contributing", "contributing.md"),
     ("Roadmap", "roadmap.md"),
     ("Supervised coding", "supervised-coding.md"),

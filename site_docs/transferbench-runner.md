@@ -1,4 +1,4 @@
-# TransferBench: deterministic policy evaluation runner
+# CarryBench: deterministic policy evaluation runner
 
 DecisionBound now includes a **policy-oracle evaluation instrument**. This is
 not yet a scientific result or a reproduction of agent success: it evaluates
