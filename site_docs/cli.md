@@ -62,7 +62,10 @@ dbound workflow status wf_EXAMPLE
 dbound workflow events wf_EXAMPLE
 dbound workflow reconcile wf_EXAMPLE
 dbound workflow cancel wf_EXAMPLE
+dbound workflow reap-orphans   # kill worker trees left by a dead coordinator
 ```
+
+`reap-orphans` takes the coordinator lease while it runs, signals only processes whose recorded start token still matches, and prints counts. It refuses to run while a coordinator is active. See [Worker containment](worker-containment.md).
 
 Every CLI command uses the same SQLite state as the authenticated local API and the read-only project-bound MCP tools. The manifest controls graph topology and budgets; it **does not** authorize paid model calls, code writes or external credentials. To register a model-driven inspection worker or an approved code repair worker, use the Python SDK and explicit dependency injection. See [Multi-agent orchestration](orchestration.md).
 

@@ -29,3 +29,5 @@ Original project material is Apache-2.0. GitHub Pages is a static documentation 
 [State backup & recovery](state-recovery.md) · [Host certification](host-certification.md) · [Research](research.md) · [Roadmap](roadmap.md)
 
 ## Durable background services and low-resource operation
+
+**G17 worker isolation (partial).** Contained workers have a hard deadline, process tree termination, cancellation across processes, orphan reaping after a coordinator crash, process id reuse protection and fail-closed termination. These are tested with real child and grandchild processes on Linux. Still open before G17 can close: Windows job object and macOS results from the CI matrix, the Docker gate, a long-run drill, and an external security review. In-process workers are not covered. Details: [Worker containment](worker-containment.md).

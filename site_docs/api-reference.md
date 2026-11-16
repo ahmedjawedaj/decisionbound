@@ -1504,6 +1504,18 @@ execution, shell, Docker, and coding writes require separately injected
 consented SDK workers. Install this command under a supervised OS service
 for operation over days; a chat session does not launch background jobs.
 
+### `workflow_reap_orphans`
+
+```python
+workflow_reap_orphans(term_grace_seconds: float = typer.Option(3.0, '--term-grace-seconds', min=0, max=60, help='Seconds between SIGTERM and SIGKILL')) -> None
+```
+
+Kill contained worker trees left behind by a dead coordinator.
+
+Takes the exclusive coordinator lease for the duration, so it cannot race a
+running coordinator. Only processes whose recorded start token still matches
+are signalled. Prints counts only.
+
 ### `workflow_supervised_code`
 
 ```python
@@ -2663,9 +2675,31 @@ Worker output, untrusted until independently checked by the host verifier.
 ``status`` is advisory. Raw model output, secrets, test stdout and source code
 must not be persisted here; use private artifacts and independent receipts.
 
+### `ExecutionControl`
+
+Host-side cancellation handle for one running claim.
+
+The supervisor creates one per lease and sets :attr:`cancel` when the claim
+is revoked, the deadline of the whole run passes, the stop grace expires or
+leadership is lost. It carries claim *references* (workflow, task, attempt
+and generation) for evidence records. It never carries the private owner
+token, so a worker that receives it still cannot finalize its own task.
+
+#### `ExecutionControl.request_cancel`
+
+```python
+request_cancel(reason: str) -> None
+```
+
+Ask the worker to stop. The first reason given is kept.
+
 ### `WorkflowWorker`
 
 Overridable per-kind worker; cannot claim or finalize tasks directly.
+
+Workers that run in a supervisor thread cannot be forcibly stopped. Only a
+worker that overrides :meth:`execute_controlled` and owns a killable
+process tree, such as ``ContainedWorker``, can honor cancellation.
 
 #### `WorkflowWorker.execute`
 
@@ -2674,6 +2708,17 @@ execute(lease: TaskAssignment) -> WorkerReceipt
 ```
 
 Perform a bounded task and return a source-free completion receipt.
+
+#### `WorkflowWorker.execute_controlled`
+
+```python
+execute_controlled(assignment: TaskAssignment, control: ExecutionControl) -> WorkerReceipt
+```
+
+Perform the task while honoring ``control``; defaults to :meth:`execute`.
+
+The default ignores ``control``, so existing in-process workers keep
+their documented behavior: they are not killable.
 
 ### `PreparationWorker`
 
@@ -2772,7 +2817,9 @@ SQLite-backed task ledger with CAS leases and durable budget reservations.
 Atomic ``BEGIN IMMEDIATE`` claims prevent duplicate scheduling by competing
 local processes. Expired read-only claims can be retried; expired code claims
 are quarantined because a write may have completed despite the timeout.
-Leases are not an execution sandbox and cannot forcibly stop a process.
+Leases are not an execution sandbox. A lease alone cannot stop a process:
+a ``ContainedWorker`` kills its process tree when the supervisor sees the
+claim revoked, but in-process thread workers cannot be stopped.
 
 #### `WorkflowJournal.create`
 
@@ -2834,6 +2881,48 @@ quarantine(lease: TaskLease, *, reason: str = 'untrusted_result') -> None
 
 Mark an uncertain or over-budget claim terminal without retrying it.
 
+#### `WorkflowJournal.claim_is_current`
+
+```python
+claim_is_current(lease: TaskLease, *, now: float | None = None) -> bool
+```
+
+Read-only check that ``lease`` still owns its task (token, generation, unexpired).
+
+#### `WorkflowJournal.note_late_result`
+
+```python
+note_late_result(lease: TaskLease, reason: str) -> None
+```
+
+Record, as an event only, that a result or failure arrived after the claim was lost.
+
+No task state changes. The compare-and-swap in :meth:`finish` and
+:meth:`fail` is what rejects the late result. This adds the evidence.
+
+#### `WorkflowJournal.record_containment_event`
+
+```python
+record_containment_event(workflow_id: str, task_id: str | None, event: str, metadata: dict | None = None) -> None
+```
+
+Append one allowlisted containment event (no task state changes).
+
+Only fixed event names are accepted so that process evidence cannot
+impersonate scheduler transitions such as ``claimed`` or ``finished``.
+
+#### `WorkflowJournal.block_uncontained`
+
+```python
+block_uncontained(workflow_id: str, task_id: str, generation: int) -> bool
+```
+
+Block a task that was leased or pending at exactly ``generation``.
+
+Used when a worker process could not be proven dead. Returns False and
+changes nothing when the task already moved on to another generation or
+a terminal state, so a newer claim is never disturbed.
+
 #### `WorkflowJournal.fail`
 
 ```python
@@ -2856,10 +2945,13 @@ Reconcile stale tasks without running them or trusting agent output.
 cancel(workflow_id: str) -> dict
 ```
 
-Revoke all task claims; running external processes are not killed.
+Revoke all task claims.
 
-Operators must separately terminate and inspect any coding sandbox.
-Late completions fail the owner-token CAS check.
+A supervisor notices the revoked claim at its next heartbeat tick and
+kills the process tree of a ``ContainedWorker``, even when the cancel
+came from another process. In-process thread workers and Docker coding
+sandboxes are not stopped, so operators must terminate and inspect
+those separately. Late completions fail the owner-token CAS check.
 
 #### `WorkflowJournal.status`
 
@@ -2900,16 +2992,343 @@ supervisors can poll concurrently; SQLite serializes claims. Worker-facing
 leases are opaque and finalization is owner/generation checked. Thread
 concurrency is local-only and does not imply distributed worker support.
 
+Every lease gets an :class:`ExecutionControl`. While any worker runs, the
+supervisor ticks every ``min(0.5, lease_seconds/3)`` seconds: it renews the
+lease, and a failed renewal (claim cancelled or replaced) cancels that
+worker. Only workers that implement ``execute_controlled`` with a killable
+process, such as ``ContainedWorker``, actually stop.
+
 #### `WorkflowSupervisor.run`
 
 ```python
-run(workflow_id: str, *, lease_seconds: int = 120, max_wall_seconds: int = 120, max_dispatch: int = 100, stop_event: threading.Event | None = None) -> dict
+run(workflow_id: str, *, lease_seconds: int = 120, max_wall_seconds: int = 120, max_dispatch: int = 100, stop_event: threading.Event | None = None, abort_event: threading.Event | None = None, stop_grace_seconds: float = 10) -> dict
 ```
 
 Schedule eligible tasks and wait for local workers within soft limits.
 
 ``max_wall_seconds`` is a best-effort dispatch limit, not a hard process
 or sandbox timeout. Per-worker provider and test timeouts are required.
+``stop_event`` stops new dispatch and, after ``stop_grace_seconds``,
+cancels running workers. ``abort_event`` (leadership lost) cancels them
+at the next tick. Cancelling only has an effect on killable workers.
+
+## `decisionbound.containment`
+
+Worker-process containment: hard deadlines, tree termination and orphan cleanup.
+
+A :class:`ContainedWorker` runs each task in a real child process that the host
+can kill, together with every descendant that stayed in the child's process
+group (POSIX) or job object (Windows). Deadlines, cancellation, leadership loss
+and output floods end in a confirmed termination, or in an explicit
+``ContainmentFailure`` that the journal turns into a blocked task.
+
+What this is not: a security sandbox. Descendants that call ``setsid`` or
+``setpgid`` escape a POSIX group. Windows processes that break away from the job
+or start through WMI or a service escape the job. There is no filesystem,
+network, credential or syscall isolation. Use the Docker coding sandbox for
+that. See ``site_docs/worker-containment.md`` for the full list.
+
+Only the Linux code paths of this module were executed by its authors. The
+macOS and Windows paths follow the platform documentation and have not been
+verified. A passing CI matrix would be the first evidence, not this file.
+
+### `ContainmentError`
+
+Base class for failures of worker-process containment.
+
+### `WorkerDeadlineExceeded`
+
+The worker ran past its hard deadline and its process tree was killed.
+
+### `WorkerCancelled`
+
+The host cancelled the worker (revoked claim, stop, or lost leadership).
+
+### `WorkerCrashed`
+
+The worker exited abnormally, or could not be started.
+
+### `WorkerOutputInvalid`
+
+The worker's output was missing, malformed or larger than allowed.
+
+### `ContainmentFailure`
+
+Containment was refused, or termination of the process tree could not be confirmed.
+
+### `ResourceLimits`
+
+Optional per-worker resource ceilings. ``None`` means not requested.
+
+``max_output_bytes`` is always enforced by the host while reading the
+worker's single receipt line. The other limits are applied by the operating
+system. A requested limit that this host cannot enforce makes a strong
+containment request fail closed instead of silently running unlimited.
+
+#### `ResourceLimits.requested`
+
+```python
+requested() -> frozenset[str]
+```
+
+Names of the optional limits that were actually requested.
+
+### `ContainmentCapabilities`
+
+What this host can guarantee: a containment ``level`` and enforced limit names.
+
+Levels are ``posix_session`` (own session and process group, killed as a
+group), ``windows_job`` (job object with kill on close) and
+``windows_tree_best_effort`` (taskkill of the process tree, which misses
+re-parented descendants). Only the first two count as ``strong``.
+
+#### `ContainmentCapabilities.strong`
+
+```python
+strong() -> bool
+```
+
+True when the level can reliably terminate the whole tree.
+
+### `ProcessIdentity`
+
+A process id plus a start token that stays unique across pid reuse.
+
+### `process_identity`
+
+```python
+process_identity(pid: int) -> ProcessIdentity | None
+```
+
+Return the live identity of ``pid``, or None if it is gone or only a zombie.
+
+### `probe_capabilities`
+
+```python
+probe_capabilities() -> ContainmentCapabilities
+```
+
+Report this host's containment level and which resource limits it enforces.
+
+### `ContainedProcess`
+
+One launched worker process and the means to kill its whole tree.
+
+Create it with :meth:`spawn`. The worker receives its assignment on stdin
+(:meth:`feed`) and returns one receipt line on stdout (:meth:`start_reader`,
+:meth:`output`). stderr is discarded. The leader's exit status is observed
+without reaping it on POSIX, so the group is killed before the pid can be
+recycled.
+
+#### `ContainedProcess.spawn`
+
+```python
+spawn(cls, argv: Sequence[str], *, env: Mapping[str, str], cwd: str | None = None, limits: ResourceLimits | None = None, containment_id: str | None = None, require_strong: bool = True) -> 'ContainedProcess'
+```
+
+Start ``argv`` through the launcher in its own session or job object.
+
+Raises :class:`ContainmentFailure` when ``require_strong`` is set and the
+host can only offer best-effort containment. Raises ``OSError`` when the
+process cannot be started at all.
+
+#### `ContainedProcess.returncode`
+
+```python
+returncode() -> int | None
+```
+
+Exit status once the leader has exited and been reaped, else None.
+
+#### `ContainedProcess.confirmed`
+
+```python
+confirmed() -> bool | None
+```
+
+True when the whole tree was proven dead, False when not, None while running.
+
+#### `ContainedProcess.overflowed`
+
+```python
+overflowed() -> bool
+```
+
+True once the worker wrote more than the allowed output bytes.
+
+#### `ContainedProcess.feed`
+
+```python
+feed(payload: bytes) -> None
+```
+
+Write ``payload`` to the worker's stdin in a thread, then close stdin.
+
+#### `ContainedProcess.start_reader`
+
+```python
+start_reader(max_output_bytes: int) -> None
+```
+
+Collect stdout in a thread, stopping and flagging overflow past the limit.
+
+#### `ContainedProcess.output`
+
+```python
+output() -> bytes
+```
+
+Return collected stdout after the tree is dead (waits briefly for the reader).
+
+#### `ContainedProcess.poll`
+
+```python
+poll() -> int | None
+```
+
+Return the exit status once the leader exited, else None.
+
+On first observing the exit, every remaining descendant is killed and
+the leader is reaped, so a worker can never leave a tree behind by
+exiting. Check :attr:`confirmed` for whether that was proven.
+
+#### `ContainedProcess.terminate_tree`
+
+```python
+terminate_tree(grace_seconds: float = 3.0) -> bool
+```
+
+Terminate the leader and all descendants. True only if proven dead.
+
+POSIX sends SIGTERM to the group, waits up to ``grace_seconds`` for the
+group to empty, then SIGKILL. Windows kills the job immediately (there is
+no catchable signal), or falls back to ``taskkill /T /F``.
+
+#### `ContainedProcess.close`
+
+```python
+close() -> None
+```
+
+Release pipes, helper threads and the job handle. Safe to call repeatedly.
+
+### `ProcessRegistry`
+
+Durable table of contained worker processes, in the same SQLite database.
+
+The table ``contained_processes`` is created lazily and additively, in the
+same way as ``local_coordinator_lease``. No existing table changes and the
+schema version stays 2. It stores process identity and claim references
+only: never argv, environment, task text, tokens or output.
+
+Write order is: intent row (``spawning``), spawn, then ``running`` with the
+pid and start token. Pass ``create=False`` for a read-and-reap view that must
+not create the table on installations that never used containment.
+
+#### `ProcessRegistry.bind_leader_generation`
+
+```python
+bind_leader_generation(generation: int) -> None
+```
+
+Stamp later rows with the coordinator's leadership generation (0 means none).
+
+#### `ProcessRegistry.record_intent`
+
+```python
+record_intent(*, workflow_id: str, task_id: str, attempt: int, generation: int, level: str, argv_sha256: str, owner: ProcessIdentity | None = None, leader_generation: int | None = None) -> str
+```
+
+Insert a ``spawning`` row before the process exists and return its id.
+
+#### `ProcessRegistry.record_started`
+
+```python
+record_started(containment_id: str, *, pid: int, pgid: int, identity: ProcessIdentity | None) -> None
+```
+
+Attach the pid, group id and start token and mark the row ``running``.
+
+#### `ProcessRegistry.mark`
+
+```python
+mark(containment_id: str, state: str) -> None
+```
+
+Move a row to a new state. Terminal states also stamp ``ended_at``.
+
+#### `ProcessRegistry.running`
+
+```python
+running() -> list[dict]
+```
+
+Rows still believed alive (``spawning`` or ``running``), oldest first.
+
+### `OrphanReaper`
+
+Clean up worker trees left behind by a dead or replaced coordinator.
+
+A row is an orphan when its owner process is dead, or when it was started
+under an older leadership generation (the owner then lost its fence). A tree
+is killed only when the live process at the recorded pid has the recorded
+start token, so a recycled pid is never signalled. If the leader is gone but
+its group is still alive, ownership cannot be verified: the row is marked
+``unconfirmed``, nothing is killed, and the task is blocked. The journal
+remains the only authority over task state.
+
+#### `OrphanReaper.reap`
+
+```python
+reap(*, leader_generation: int) -> dict
+```
+
+Examine every live row and return counts per outcome.
+
+The result keys are ``examined``, ``terminated``, ``gone``,
+``identity_mismatch`` and ``unconfirmed``. Counts only, no identifiers.
+
+### `ContainedWorker`
+
+Run each task in a killable child process with a hard deadline.
+
+``argv`` is the fixed command line, an operator decision made in code. The
+child gets the :class:`TaskAssignment` as one JSON object on stdin, with no
+owner token and no generation, and answers with one JSON receipt line on
+stdout. stderr is discarded. Its environment is an allowlist: ``PATH``
+(plus ``SYSTEMROOT``, ``TEMP`` and ``TMP`` on Windows) and the names in
+``env_passthrough``. The child's working directory is the project path.
+
+The deadline is monotonic and starts at spawn, independent of the lease.
+Heartbeats continue until the deadline. The host discards any receipt that
+arrives after cancellation began. ``require_strong`` is always treated as
+true for ``code`` tasks. This class never grants write, model or network
+permission: the argv you choose decides what the child can do.
+
+Override guidance: subclass only to change how the argv is chosen. Do not
+bypass the registry, because crash recovery depends on its rows.
+
+#### `ContainedWorker.execute`
+
+```python
+execute(lease: TaskAssignment) -> WorkerReceipt
+```
+
+Run the task with a private, never-cancelled control (used outside a supervisor).
+
+#### `ContainedWorker.execute_controlled`
+
+```python
+execute_controlled(assignment: TaskAssignment, control: ExecutionControl) -> WorkerReceipt
+```
+
+Spawn, supervise and tear down the child. Returns its receipt or raises.
+
+Raises :class:`WorkerDeadlineExceeded`, :class:`WorkerCancelled`,
+:class:`WorkerCrashed`, :class:`WorkerOutputInvalid` or
+:class:`ContainmentFailure`. Whenever it returns or raises after a spawn,
+the child's whole tree has been killed, or the failure says it could not
+be proven.
 
 ## `decisionbound.background`
 
@@ -2923,6 +3342,9 @@ be independently authorized and sandboxed by their operators.
 
 This is **not** a distributed consensus implementation, a task-killing sandbox,
 or a multi-tenant cloud service. It is a bounded local service primitive.
+Workers that run as ``ContainedWorker`` child processes are killed on deadline,
+cancel, stop or lost leadership, and a restarted coordinator reaps the trees of
+a crashed one. In-process thread workers still cannot be forcibly stopped.
 
 ### `CoordinatorConflict`
 
@@ -2951,8 +3373,10 @@ Small bounded service configuration with explicit local resource caps.
 
 ``max_seconds`` limits the coordinator's scheduling lifetime, not the
 execution time of arbitrary worker processes. Worker plugins MUST enforce
-their own hard process/network deadlines. ``max_rss_mib=None`` disables the
-RSS guard explicitly; otherwise an unavailable measurement fails closed.
+their own hard process/network deadlines, or run inside a ``ContainedWorker``.
+``max_rss_mib=None`` disables the RSS guard explicitly; otherwise an
+unavailable measurement fails closed. ``worker_stop_grace_seconds`` is how
+long a graceful stop lets running workers finish before they are cancelled.
 
 ### `Leadership`
 
