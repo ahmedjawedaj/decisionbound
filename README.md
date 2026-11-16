@@ -2,12 +2,14 @@
 
 **Evidence-grounded engineering decisions and bounded agent workflows.**
 
-[![CI](https://github.com/ahmedjawedaj/decisionbound/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ahmedjawedaj/decisionbound/actions/workflows/ci.yml)
-[![Release readiness](https://github.com/ahmedjawedaj/decisionbound/actions/workflows/quality-gate.yml/badge.svg?branch=main)](https://github.com/ahmedjawedaj/decisionbound/actions/workflows/quality-gate.yml)
-[![Platform checks](https://github.com/ahmedjawedaj/decisionbound/actions/workflows/platform-certification.yml/badge.svg?branch=main)](https://github.com/ahmedjawedaj/decisionbound/actions/workflows/platform-certification.yml)
-[![Documentation](https://github.com/ahmedjawedaj/decisionbound/actions/workflows/pages.yml/badge.svg?branch=main)](https://github.com/ahmedjawedaj/decisionbound/actions/workflows/pages.yml)
+[![CI](https://img.shields.io/github/actions/workflow/status/ahmedjawedaj/decisionbound/ci.yml?branch=main&label=CI)](https://github.com/ahmedjawedaj/decisionbound/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/actions/workflow/status/ahmedjawedaj/decisionbound/quality-gate.yml?branch=main&label=Release)](https://github.com/ahmedjawedaj/decisionbound/actions/workflows/quality-gate.yml)
+[![Platforms](https://img.shields.io/github/actions/workflow/status/ahmedjawedaj/decisionbound/platform-certification.yml?branch=main&label=Platforms)](https://github.com/ahmedjawedaj/decisionbound/actions/workflows/platform-certification.yml)
+[![Docs](https://img.shields.io/github/actions/workflow/status/ahmedjawedaj/decisionbound/pages.yml?branch=main&label=Docs)](https://ahmedjawedaj.github.io/decisionbound/)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue)](pyproject.toml)
 [![Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
+[![Status: alpha](https://img.shields.io/badge/Status-alpha%200.13.0a1-orange)](CHANGELOG.md)
+[![Cite](https://img.shields.io/badge/Cite-CITATION.cff-6f42c1)](#citation)
 
 [Documentation](https://ahmedjawedaj.github.io/decisionbound/) · [Interactive demo](https://ahmedjawedaj.github.io/decisionbound/concept/) · [Quickstart](https://ahmedjawedaj.github.io/decisionbound/getting-started.html) · [API reference](https://ahmedjawedaj.github.io/decisionbound/api-reference.html) · [Roadmap](ROADMAP.md) · [Issues](https://github.com/ahmedjawedaj/decisionbound/issues) · [Discussions](https://github.com/ahmedjawedaj/decisionbound/discussions)
 
@@ -15,7 +17,22 @@ DecisionBound is a local-first Python SDK and CLI for recording engineering deci
 
 It connects decision provenance, conservative context transfer, local workflow coordination, and consent-bound coding/review in one developer toolkit. CLI, web, editor, and MCP surfaces share project identities and local state.
 
-> **Experimental alpha — package version `0.13.0a1`.** Local functionality is implemented, but this is not a production-certified autonomous service. Windows full-suite compatibility and independent security review remain incomplete. Badges show actual workflow status; passing installation checks does not certify every platform or integration.
+> **Experimental alpha — package version `0.13.0a1`.** Local functionality is implemented, but this is not a production-certified autonomous service. The full test suite runs on Linux, macOS and Windows in CI, and independent security review remains incomplete. Badges show actual workflow status; passing checks does not certify every platform or integration.
+
+### At a glance
+
+```bash
+git clone https://github.com/ahmedjawedaj/decisionbound.git && cd decisionbound
+python -m pip install -e '.[web]'
+
+cd /path/to/your/repository
+dbound setup --profile local-safe --path . --initialize      # register this project locally
+dbound doctor --path . --strict                              # check prerequisites, nonzero exit if missing
+dbound agent demo "Find the relevant module" --path .        # deterministic agent run, no model call
+dbound prepare "Review the error-handling path" --path . --tokens 1200   # budgeted context capsule
+```
+
+This path is fully offline: no model account, API key or network request. See [Installation](#installation) and [Quickstart](#quickstart) for the full walk-through.
 
 ## Contents
 
@@ -25,14 +42,17 @@ It connects decision provenance, conservative context transfer, local workflow c
 - [Installation](#installation)
 - [Quickstart](#quickstart)
 - [Python SDK](#python-sdk)
+- [Examples](#examples)
 - [Workflows and developer clients](#workflows-and-developer-clients)
 - [Architecture](#architecture)
 - [Security and data handling](#security-and-data-handling)
 - [Verification and development](#verification-and-development)
 - [Evaluation and roadmap](#evaluation-and-roadmap)
 - [Repository structure](#repository-structure)
+- [Related projects](#related-projects)
 - [Contributing and support](#contributing-and-support)
 - [License and citation](#license-and-citation)
+  - [Citation](#citation)
 
 ## Why DecisionBound?
 
@@ -224,6 +244,36 @@ with TemporaryDirectory() as directory:
 
 See [`examples/custom_policy.py`](examples/custom_policy.py), the [SDK guide](https://ahmedjawedaj.github.io/decisionbound/sdk.html), and the [API reference](https://ahmedjawedaj.github.io/decisionbound/api-reference.html) for extension contracts. A custom adapter cannot bypass canonical project identity, evidence checks, or write authorization.
 
+## Examples
+
+The [`examples/`](examples/) folder has runnable scripts. Each one creates its own temporary project, needs no network, credentials or Docker, and prints what it checked. Run them from the repository root after the editable install.
+
+| Example | Shows |
+| --- | --- |
+| [`custom_policy.py`](examples/custom_policy.py) | A team transfer policy that adds a veto on top of the conservative core rules |
+| [`mock_readonly_agent.py`](examples/mock_readonly_agent.py) | A deterministic read-only repository inspection, and that tool receipts cannot claim task completion |
+| [`mock_patch_agent.py`](examples/mock_patch_agent.py) | The coding lifecycle in a disposable worktree, with the original checkout left untouched |
+| [`mock_repair_agent.py`](examples/mock_repair_agent.py) | A bounded repair loop: one failing fake test, a second patch, and no change to source files |
+
+```bash
+python examples/custom_policy.py
+python examples/mock_readonly_agent.py
+```
+
+Mock results show the lifecycle and integrity checks. They are never counted as real test success or verification.
+
+Workflow manifests in [`examples/workflow/`](examples/workflow/) can be checked without running them:
+
+| Manifest | Describes |
+| --- | --- |
+| [`repository-review.yaml`](examples/workflow/repository-review.yaml) | A fully offline, read-only review graph |
+| [`mock-orchestration.yaml`](examples/workflow/mock-orchestration.yaml) | A multi-task graph with simulated outcomes and a zero cost budget |
+| [`supervised-code-review.yaml`](examples/workflow/supervised-code-review.yaml) | A supervised review graph whose submission alone enables no coding, network or writes |
+
+```bash
+dbound workflow validate --file examples/workflow/mock-orchestration.yaml
+```
+
 ## Workflows and developer clients
 
 ### Local workflow coordination
@@ -359,6 +409,17 @@ PUBLIC_CONTENT.json      Reviewed public-file allowlist
 
 The public repository contains product source and reviewed documentation. Operational notes, private datasets, unpublished drafts, credentials and runtime state are outside this distribution. See [PUBLICATION_POLICY.md](PUBLICATION_POLICY.md).
 
+## Related projects
+
+DecisionBound reads decision records rather than authoring them. It pairs with existing ADR tooling:
+
+- [adr-tools](https://github.com/npryce/adr-tools) creates and links ADRs from the command line. Its default template uses the `## Context` and `## Decision` headings that `dbound decision discover` expects.
+- [MADR](https://github.com/adr/madr) is a Markdown ADR template. Its default headings differ, so include `## Context` and `## Decision` sections in records you want DecisionBound to discover.
+- [Log4brains](https://github.com/thomvaill/log4brains) manages and publishes ADRs as a browsable site.
+- [adr.github.io](https://adr.github.io/) collects ADR background, templates and tools.
+
+For agent hosts, the read-only server follows the [Model Context Protocol](https://modelcontextprotocol.io/) and uses the [official MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk) through the optional `mcp` extra.
+
 ## Contributing and support
 
 - Follow [CONTRIBUTING.md](CONTRIBUTING.md) for setup, scoped changes, verification and pull requests.
@@ -371,4 +432,18 @@ The public repository contains product source and reviewed documentation. Operat
 
 Original DecisionBound material is licensed under [Apache License 2.0](LICENSE). See [NOTICE](NOTICE); third-party dependencies and datasets retain their own terms.
 
+### Citation
+
 If you use the software, cite the version or commit using [CITATION.cff](CITATION.cff). GitHub's **Cite this repository** feature reads that metadata. No DOI, peer-reviewed result, signed production release, PyPI publication, or Marketplace distribution is implied by the source repository.
+
+```bibtex
+@software{jawed2026decisionbound,
+  author  = {Jawed, Ahmed},
+  title   = {{DecisionBound}: Evidence-grounded engineering judgment for {AI} agents},
+  year    = {2026},
+  version = {0.13.0a1},
+  license = {Apache-2.0},
+  url     = {https://github.com/ahmedjawedaj/decisionbound},
+  note    = {Experimental alpha. Please also record the commit you used.}
+}
+```
