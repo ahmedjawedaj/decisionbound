@@ -1,0 +1,107 @@
+{
+ "cases": 66,
+ "confusion": {
+  "Z1": {
+   "abstain->abstain": 15,
+   "abstain->apply": 2,
+   "abstain->translate": 6,
+   "apply->apply": 17,
+   "apply->escalate": 1,
+   "apply->translate": 1,
+   "escalate->abstain": 6,
+   "escalate->apply": 4,
+   "escalate->escalate": 1,
+   "translate->abstain": 3,
+   "translate->apply": 3,
+   "translate->escalate": 1,
+   "translate->translate": 6
+  },
+  "Z2": {
+   "abstain->abstain": 20,
+   "abstain->apply": 1,
+   "abstain->translate": 2,
+   "apply->abstain": 2,
+   "apply->apply": 16,
+   "apply->translate": 1,
+   "escalate->abstain": 5,
+   "escalate->apply": 3,
+   "escalate->escalate": 3,
+   "translate->abstain": 3,
+   "translate->apply": 3,
+   "translate->escalate": 1,
+   "translate->translate": 6
+  }
+ },
+ "pairwise_agreement": {
+  "Z1 vs Z2": {
+   "kappa": 0.592,
+   "raw": 0.727
+  }
+ },
+ "results": [
+  {
+   "accuracy": 0.591,
+   "ci95": {
+    "accuracy": [
+     0.464,
+     0.7
+    ],
+    "macro_f1": [
+     0.379,
+     0.606
+    ]
+   },
+   "harmful_apply_rate": 0.176,
+   "harmful_transfer_rate": 0.353,
+   "macro_f1": 0.5,
+   "missed_transfer_rate": 0.156,
+   "n": 66,
+   "name": "Z1",
+   "per_label_recall": {
+    "abstain": 0.652,
+    "apply": 0.895,
+    "escalate": 0.091,
+    "translate": 0.462
+   },
+   "prediction_counts": {
+    "abstain": 24,
+    "apply": 26,
+    "escalate": 3,
+    "translate": 13
+   },
+   "transfer_vs_withhold": 0.742
+  },
+  {
+   "accuracy": 0.682,
+   "ci95": {
+    "accuracy": [
+     0.578,
+     0.782
+    ],
+    "macro_f1": [
+     0.477,
+     0.731
+    ]
+   },
+   "harmful_apply_rate": 0.118,
+   "harmful_transfer_rate": 0.176,
+   "macro_f1": 0.616,
+   "missed_transfer_rate": 0.188,
+   "n": 66,
+   "name": "Z2",
+   "per_label_recall": {
+    "abstain": 0.87,
+    "apply": 0.842,
+    "escalate": 0.273,
+    "translate": 0.462
+   },
+   "prediction_counts": {
+    "abstain": 30,
+    "apply": 23,
+    "escalate": 4,
+    "translate": 9
+   },
+   "transfer_vs_withhold": 0.818
+  }
+ ]
+}

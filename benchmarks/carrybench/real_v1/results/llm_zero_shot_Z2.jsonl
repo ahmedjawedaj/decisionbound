@@ -1,0 +1,66 @@
+{"case_id": "tbr-n32", "label": "translate", "confidence": 0.5, "reason": "Disclosure intent carries over but the target mandates its own fixed AI disclosure wording."}
+{"case_id": "tbr-c18", "label": "abstain", "confidence": 0.8, "reason": "Target treats the root barrel as the canonical contract export, opposite of the no-barrel rule."}
+{"case_id": "tbr-n12", "label": "abstain", "confidence": 0.75, "reason": "Target requires testing details in PR descriptions and has a template, conflicting with no test plan."}
+{"case_id": "tbr-n19", "label": "abstain", "confidence": 0.55, "reason": "Target runs vitest, so a Jest-only rule does not fit."}
+{"case_id": "tbr-n05", "label": "abstain", "confidence": 0.5, "reason": "Target forbids editing provider lower bounds at all, which is its own stricter stance."}
+{"case_id": "tbr-n30", "label": "translate", "confidence": 0.7, "reason": "Same goal of a per-change record, but the target uses change fragment files in CHANGES."}
+{"case_id": "tbr-p16", "label": "apply", "confidence": 0.9, "reason": "Target already bans any and prefers unknown with guards."}
+{"case_id": "tbr-p08", "label": "apply", "confidence": 0.85, "reason": "Target uses ruff format and check with pre-commit, so the rule fits unchanged."}
+{"case_id": "tbr-c15", "label": "escalate", "confidence": 0.45, "reason": "Target licence is MPL 2.0 not MIT, and licence compatibility of generated code needs a human decision."}
+{"case_id": "tbr-c02", "label": "abstain", "confidence": 0.75, "reason": "Target prefers Jest, contradicting a Vitest-only rule."}
+{"case_id": "tbr-n09", "label": "abstain", "confidence": 0.4, "reason": "Target treats amending a local unpushed commit as the normal way to add a sign-off."}
+{"case_id": "tbr-n29", "label": "apply", "confidence": 0.55, "reason": "Target also needs a linked open issue for outside PRs, so the rule fits and the target adds detail."}
+{"case_id": "tbr-c03", "label": "abstain", "confidence": 0.85, "reason": "Target requires Conventional Commits with a lint workflow, opposite of the source style."}
+{"case_id": "tbr-p01", "label": "apply", "confidence": 0.9, "reason": "Target has a bun lockfile and runs through bun."}
+{"case_id": "tbr-p02", "label": "apply", "confidence": 0.9, "reason": "Target requires pnpm and has a pnpm lockfile."}
+{"case_id": "tbr-n03", "label": "apply", "confidence": 0.45, "reason": "Target asks for a justified, minimal dependency addition with uv, so the rule fits."}
+{"case_id": "tbr-n14", "label": "translate", "confidence": 0.5, "reason": "Keep security reports private but use the target email channel instead of an advisory form."}
+{"case_id": "tbr-c13", "label": "translate", "confidence": 0.6, "reason": "Disclosure intent carries over but via the target PR template, not a label."}
+{"case_id": "tbr-p05", "label": "apply", "confidence": 0.9, "reason": "Both repos do not use changesets."}
+{"case_id": "tbr-n07", "label": "apply", "confidence": 0.55, "reason": "Target states the same licence-by-contribution rule under its own MIT licence."}
+{"case_id": "tbr-n33", "label": "abstain", "confidence": 0.8, "reason": "Target uses yarn through a wrapper, conflicting with pnpm."}
+{"case_id": "tbr-p03", "label": "apply", "confidence": 0.9, "reason": "Target runs integration specs with vitest."}
+{"case_id": "tbr-p04", "label": "apply", "confidence": 0.9, "reason": "Target requires Conventional Commits with scope."}
+{"case_id": "tbr-n13", "label": "abstain", "confidence": 0.8, "reason": "Target uses conda or Pixi and CI uses Pixi tasks, not uv."}
+{"case_id": "tbr-n35", "label": "apply", "confidence": 0.5, "reason": "Agent only reports findings to the user who posts them, which fits the target limits on remarks."}
+{"case_id": "tbr-n10", "label": "translate", "confidence": 0.6, "reason": "Never hand-edit baselines but regenerate them with the target pinned container and update script."}
+{"case_id": "tbr-c10", "label": "translate", "confidence": 0.55, "reason": "Keep to project dependency commands, using poetry instead of uv."}
+{"case_id": "tbr-n36", "label": "abstain", "confidence": 0.5, "reason": "Target uses black and flake8 via pre-commit, so a ruff rule does not fit."}
+{"case_id": "tbr-p10", "label": "apply", "confidence": 0.85, "reason": "Target also says to avoid mocks where possible."}
+{"case_id": "tbr-c06", "label": "abstain", "confidence": 0.8, "reason": "Target says providers never take newsfragments."}
+{"case_id": "tbr-n37", "label": "abstain", "confidence": 0.75, "reason": "Target uses pip requirements files and tox, not a uv locked environment."}
+{"case_id": "tbr-n40", "label": "abstain", "confidence": 0.8, "reason": "Target requires a co-author trailer for the tool, the opposite stance."}
+{"case_id": "tbr-n39", "label": "apply", "confidence": 0.85, "reason": "Target UI already mandates msw for API mocking."}
+{"case_id": "tbr-n23", "label": "apply", "confidence": 0.6, "reason": "Target also starts with a CLA, so the agent should confirm with the human that it is signed."}
+{"case_id": "tbr-n17", "label": "apply", "confidence": 0.5, "reason": "Target already uses a cooldown with a security exception, so the new entry should follow it."}
+{"case_id": "tbr-n21", "label": "abstain", "confidence": 0.8, "reason": "Target allows suppression with its own disable comment, contradicting never suppress."}
+{"case_id": "tbr-n08", "label": "abstain", "confidence": 0.5, "reason": "Target allows agent PRs with explicit human instruction and draft status, its own stance."}
+{"case_id": "tbr-p11", "label": "apply", "confidence": 0.85, "reason": "Target also requires AI assistance disclosure."}
+{"case_id": "tbr-c09", "label": "abstain", "confidence": 0.85, "reason": "Target requires uv pip for editable reinstall after entry point changes."}
+{"case_id": "tbr-c05", "label": "abstain", "confidence": 0.85, "reason": "Target says not to hand-write changesets, a bot derives them."}
+{"case_id": "tbr-n31", "label": "translate", "confidence": 0.65, "reason": "Same goal of a per-change note but the target uses a changelog entry with its own exemptions."}
+{"case_id": "tbr-n24", "label": "abstain", "confidence": 0.5, "reason": "Target requires verified signatures and says sign-off does not satisfy it."}
+{"case_id": "tbr-c12", "label": "abstain", "confidence": 0.75, "reason": "Target does not ask about AI assistance, so no disclosure field applies."}
+{"case_id": "tbr-c19", "label": "abstain", "confidence": 0.85, "reason": "Target uses pnpm, not yarn through jlpm."}
+{"case_id": "tbr-p09", "label": "apply", "confidence": 0.9, "reason": "Target forbids uv pip install and uses a uv lockfile."}
+{"case_id": "tbr-c14", "label": "escalate", "confidence": 0.5, "reason": "Target asks that AI content not be posted to the tracker, so a human must decide."}
+{"case_id": "tbr-c01", "label": "abstain", "confidence": 0.8, "reason": "Target requires pnpm, not Bun."}
+{"case_id": "tbr-n25", "label": "apply", "confidence": 0.6, "reason": "Target also routes vulnerabilities through its security policy, not public issues."}
+{"case_id": "tbr-n06", "label": "abstain", "confidence": 0.8, "reason": "Target requires conventional commit PR titles, opposite of no prefixes."}
+{"case_id": "tbr-c07", "label": "translate", "confidence": 0.45, "reason": "Airflow core takes towncrier fragments only of the significant type, a narrower form."}
+{"case_id": "tbr-n04", "label": "abstain", "confidence": 0.5, "reason": "Target has its own softer guidance on rebasing and force pushing."}
+{"case_id": "tbr-p07", "label": "apply", "confidence": 0.9, "reason": "Target uses towncrier fragments."}
+{"case_id": "tbr-n34", "label": "escalate", "confidence": 0.55, "reason": "Target rules out automated PRs unless pre-approved, so a human must decide."}
+{"case_id": "tbr-p14", "label": "apply", "confidence": 0.9, "reason": "Target uses pnpm; the old revert is superseded."}
+{"case_id": "tbr-p06", "label": "apply", "confidence": 0.9, "reason": "Target requires changesets for package changes."}
+{"case_id": "tbr-c08", "label": "translate", "confidence": 0.55, "reason": "Same format and lint step but with black and flake8 instead of ruff."}
+{"case_id": "tbr-c11", "label": "abstain", "confidence": 0.85, "reason": "Target rules say to mock every dependency, opposite of real operations."}
+{"case_id": "tbr-n38", "label": "abstain", "confidence": 0.75, "reason": "Target tells agents to retain credit trailers and AI notices."}
+{"case_id": "tbr-n11", "label": "abstain", "confidence": 0.85, "reason": "Target uses yarn, not pnpm."}
+{"case_id": "tbr-c16", "label": "abstain", "confidence": 0.85, "reason": "Target enforces squash merges, so the ADR does not fit."}
+{"case_id": "tbr-n22", "label": "abstain", "confidence": 0.85, "reason": "Target requires changelog fragments for PRs."}
+{"case_id": "tbr-p12", "label": "apply", "confidence": 0.9, "reason": "Target has an accepted ADR for named exports."}
+{"case_id": "tbr-n28", "label": "apply", "confidence": 0.9, "reason": "Target also requires DCO sign-off on commits."}
+{"case_id": "tbr-c04", "label": "abstain", "confidence": 0.85, "reason": "Target requires changesets for package changes."}
+{"case_id": "tbr-n15", "label": "escalate", "confidence": 0.8, "reason": "Releases are a maintainer-approved action needing human authority."}
+{"case_id": "tbr-n01", "label": "abstain", "confidence": 0.85, "reason": "Target requires changesets for published packages."}

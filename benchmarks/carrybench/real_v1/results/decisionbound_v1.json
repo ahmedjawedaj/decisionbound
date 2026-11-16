@@ -1,0 +1,1144 @@
+{
+ "adapter": "label-blind, see module docstring",
+ "bootstrap": {
+  "reps": 2000,
+  "seed": 17
+ },
+ "cases": 66,
+ "dataset": "carrybench_real_v1",
+ "label_distribution": {
+  "abstain": 23,
+  "apply": 19,
+  "escalate": 11,
+  "translate": 13
+ },
+ "label_status": "two blind LLM annotators, one model family, no human labels",
+ "per_case": [
+  {
+   "case_id": "tbr-c01",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "translate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "abstain",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-c02",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "abstain",
+   "decisionbound [personal]": "abstain",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "abstain",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "abstain",
+   "tags-only [personal]": "abstain"
+  },
+  {
+   "case_id": "tbr-c03",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "translate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "abstain",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-c04",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "translate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "abstain",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-c05",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "translate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "abstain",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-c06",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "translate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "abstain",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-c07",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "translate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "apply",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-c08",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "abstain",
+   "decisionbound [personal]": "abstain",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "abstain",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "abstain",
+   "tags-only [personal]": "abstain"
+  },
+  {
+   "case_id": "tbr-c09",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "translate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "abstain",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-c10",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "translate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "abstain",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-c11",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "translate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "abstain",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-c12",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "escalate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "escalate",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-c13",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "escalate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "translate",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-c14",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "escalate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "escalate",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-c15",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "escalate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "escalate",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-c16",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "translate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "abstain",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-c18",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "translate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "translate",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-c19",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "abstain",
+   "decisionbound [personal]": "abstain",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "abstain",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "abstain",
+   "tags-only [personal]": "abstain"
+  },
+  {
+   "case_id": "tbr-p01",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "translate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "apply",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-p02",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "translate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "apply",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-p03",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "translate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "apply",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-p04",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "abstain",
+   "decisionbound [personal]": "abstain",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "apply",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "abstain",
+   "tags-only [personal]": "abstain"
+  },
+  {
+   "case_id": "tbr-p05",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "translate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "apply",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-p06",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "translate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "apply",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-p07",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "translate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "apply",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-p08",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "translate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "apply",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-p09",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "translate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "apply",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-p10",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "translate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "abstain",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-p11",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "escalate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "translate",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-p12",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "translate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "apply",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-p14",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "translate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "apply",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-p16",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "translate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "apply",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-n01",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "translate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "translate",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-n03",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "translate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "translate",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-n04",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "translate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "apply",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-n05",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "translate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "apply",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-n06",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "translate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "abstain",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-n07",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "escalate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "escalate",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-n08",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "escalate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "escalate",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-n09",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "translate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "abstain",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-n10",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "translate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "translate",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-n11",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "abstain",
+   "decisionbound [personal]": "abstain",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "abstain",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "abstain",
+   "tags-only [personal]": "abstain"
+  },
+  {
+   "case_id": "tbr-n12",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "translate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "abstain",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-n13",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "translate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "abstain",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-n14",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "escalate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "translate",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-n15",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "escalate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "escalate",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-n17",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "translate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "apply",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-n19",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "abstain",
+   "decisionbound [personal]": "abstain",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "abstain",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "abstain",
+   "tags-only [personal]": "abstain"
+  },
+  {
+   "case_id": "tbr-n21",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "translate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "translate",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-n22",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "abstain",
+   "decisionbound [personal]": "abstain",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "abstain",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "abstain",
+   "tags-only [personal]": "abstain"
+  },
+  {
+   "case_id": "tbr-n23",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "escalate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "escalate",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-n24",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "escalate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "escalate",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-n25",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "escalate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "apply",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-n28",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "escalate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "apply",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-n29",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "translate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "translate",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-n30",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "abstain",
+   "decisionbound [personal]": "abstain",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "translate",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "abstain",
+   "tags-only [personal]": "abstain"
+  },
+  {
+   "case_id": "tbr-n31",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "translate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "translate",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-n32",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "escalate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "translate",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-n33",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "abstain",
+   "decisionbound [personal]": "abstain",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "abstain",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "abstain",
+   "tags-only [personal]": "abstain"
+  },
+  {
+   "case_id": "tbr-n34",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "escalate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "translate",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-n35",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "escalate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "escalate",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-n36",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "abstain",
+   "decisionbound [personal]": "abstain",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "abstain",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "abstain",
+   "tags-only [personal]": "abstain"
+  },
+  {
+   "case_id": "tbr-n37",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "abstain",
+   "decisionbound [personal]": "abstain",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "abstain",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "abstain",
+   "tags-only [personal]": "abstain"
+  },
+  {
+   "case_id": "tbr-n38",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "escalate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "escalate",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-n39",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "translate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "apply",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  },
+  {
+   "case_id": "tbr-n40",
+   "decisionbound [faithful]": "abstain",
+   "decisionbound [personal+blocklist]": "escalate",
+   "decisionbound [personal]": "translate",
+   "full-transfer [faithful]": "apply",
+   "full-transfer [personal]": "apply",
+   "label": "escalate",
+   "no-transfer [faithful]": "abstain",
+   "no-transfer [personal]": "abstain",
+   "tags-only [faithful]": "apply",
+   "tags-only [personal]": "apply"
+  }
+ ],
+ "results": [
+  {
+   "accuracy": 0.348,
+   "ci95": {
+    "accuracy": [
+     0.226,
+     0.479
+    ],
+    "macro_f1": [
+     0.092,
+     0.162
+    ]
+   },
+   "harmful_apply_rate": 0.0,
+   "harmful_transfer_rate": 0.0,
+   "macro_f1": 0.129,
+   "method": "no-transfer [faithful]",
+   "missed_transfer_rate": 1.0,
+   "n": 66,
+   "per_label_recall": {
+    "abstain": 1.0,
+    "apply": 0.0,
+    "escalate": 0.0,
+    "translate": 0.0
+   },
+   "prediction_counts": {
+    "abstain": 66
+   },
+   "transfer_vs_withhold": 0.515
+  },
+  {
+   "accuracy": 0.288,
+   "ci95": {
+    "accuracy": [
+     0.19,
+     0.386
+    ],
+    "macro_f1": [
+     0.08,
+     0.139
+    ]
+   },
+   "harmful_apply_rate": 1.0,
+   "harmful_transfer_rate": 1.0,
+   "macro_f1": 0.112,
+   "method": "full-transfer [faithful]",
+   "missed_transfer_rate": 0.0,
+   "n": 66,
+   "per_label_recall": {
+    "abstain": 0.0,
+    "apply": 1.0,
+    "escalate": 0.0,
+    "translate": 0.0
+   },
+   "prediction_counts": {
+    "apply": 66
+   },
+   "transfer_vs_withhold": 0.485
+  },
+  {
+   "accuracy": 0.409,
+   "ci95": {
+    "accuracy": [
+     0.274,
+     0.548
+    ],
+    "macro_f1": [
+     0.173,
+     0.327
+    ]
+   },
+   "harmful_apply_rate": 0.735,
+   "harmful_transfer_rate": 0.735,
+   "macro_f1": 0.254,
+   "method": "tags-only [faithful]",
+   "missed_transfer_rate": 0.062,
+   "n": 66,
+   "per_label_recall": {
+    "abstain": 0.391,
+    "apply": 0.947,
+    "escalate": 0.0,
+    "translate": 0.0
+   },
+   "prediction_counts": {
+    "abstain": 11,
+    "apply": 55
+   },
+   "transfer_vs_withhold": 0.591
+  },
+  {
+   "accuracy": 0.348,
+   "ci95": {
+    "accuracy": [
+     0.226,
+     0.479
+    ],
+    "macro_f1": [
+     0.092,
+     0.162
+    ]
+   },
+   "harmful_apply_rate": 0.0,
+   "harmful_transfer_rate": 0.0,
+   "macro_f1": 0.129,
+   "method": "decisionbound [faithful]",
+   "missed_transfer_rate": 1.0,
+   "n": 66,
+   "per_label_recall": {
+    "abstain": 1.0,
+    "apply": 0.0,
+    "escalate": 0.0,
+    "translate": 0.0
+   },
+   "prediction_counts": {
+    "abstain": 66
+   },
+   "transfer_vs_withhold": 0.515
+  },
+  {
+   "accuracy": 0.348,
+   "ci95": {
+    "accuracy": [
+     0.226,
+     0.479
+    ],
+    "macro_f1": [
+     0.092,
+     0.162
+    ]
+   },
+   "harmful_apply_rate": 0.0,
+   "harmful_transfer_rate": 0.0,
+   "macro_f1": 0.129,
+   "method": "no-transfer [personal]",
+   "missed_transfer_rate": 1.0,
+   "n": 66,
+   "per_label_recall": {
+    "abstain": 1.0,
+    "apply": 0.0,
+    "escalate": 0.0,
+    "translate": 0.0
+   },
+   "prediction_counts": {
+    "abstain": 66
+   },
+   "transfer_vs_withhold": 0.515
+  },
+  {
+   "accuracy": 0.288,
+   "ci95": {
+    "accuracy": [
+     0.19,
+     0.386
+    ],
+    "macro_f1": [
+     0.08,
+     0.139
+    ]
+   },
+   "harmful_apply_rate": 1.0,
+   "harmful_transfer_rate": 1.0,
+   "macro_f1": 0.112,
+   "method": "full-transfer [personal]",
+   "missed_transfer_rate": 0.0,
+   "n": 66,
+   "per_label_recall": {
+    "abstain": 0.0,
+    "apply": 1.0,
+    "escalate": 0.0,
+    "translate": 0.0
+   },
+   "prediction_counts": {
+    "apply": 66
+   },
+   "transfer_vs_withhold": 0.485
+  },
+  {
+   "accuracy": 0.409,
+   "ci95": {
+    "accuracy": [
+     0.274,
+     0.548
+    ],
+    "macro_f1": [
+     0.173,
+     0.327
+    ]
+   },
+   "harmful_apply_rate": 0.735,
+   "harmful_transfer_rate": 0.735,
+   "macro_f1": 0.254,
+   "method": "tags-only [personal]",
+   "missed_transfer_rate": 0.062,
+   "n": 66,
+   "per_label_recall": {
+    "abstain": 0.391,
+    "apply": 0.947,
+    "escalate": 0.0,
+    "translate": 0.0
+   },
+   "prediction_counts": {
+    "abstain": 11,
+    "apply": 55
+   },
+   "transfer_vs_withhold": 0.591
+  },
+  {
+   "accuracy": 0.318,
+   "ci95": {
+    "accuracy": [
+     0.2,
+     0.442
+    ],
+    "macro_f1": [
+     0.135,
+     0.296
+    ]
+   },
+   "harmful_apply_rate": 0.0,
+   "harmful_transfer_rate": 0.735,
+   "macro_f1": 0.221,
+   "method": "decisionbound [personal]",
+   "missed_transfer_rate": 0.062,
+   "n": 66,
+   "per_label_recall": {
+    "abstain": 0.391,
+    "apply": 0.0,
+    "escalate": 0.0,
+    "translate": 0.923
+   },
+   "prediction_counts": {
+    "abstain": 11,
+    "translate": 55
+   },
+   "transfer_vs_withhold": 0.591
+  },
+  {
+   "accuracy": 0.409,
+   "ci95": {
+    "accuracy": [
+     0.306,
+     0.52
+    ],
+    "macro_f1": [
+     0.314,
+     0.465
+    ]
+   },
+   "harmful_apply_rate": 0.0,
+   "harmful_transfer_rate": 0.412,
+   "macro_f1": 0.392,
+   "method": "decisionbound [personal+blocklist]",
+   "missed_transfer_rate": 0.281,
+   "n": 66,
+   "per_label_recall": {
+    "abstain": 0.391,
+    "apply": 0.0,
+    "escalate": 1.0,
+    "translate": 0.538
+   },
+   "prediction_counts": {
+    "abstain": 11,
+    "escalate": 18,
+    "translate": 37
+   },
+   "transfer_vs_withhold": 0.652
+  }
+ ]
+}
