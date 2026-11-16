@@ -19,7 +19,7 @@
 | Leaked provider credentials | Built-in profiles carry no keys | Environment/keychain integration pending |
 | Unapproved cross-project memory | Scope, owner and explicit tag checks | Does not yet support enterprise identity or policy reconciliation |
 | Unauthorized localhost browser requests | Token, Host and Origin checks | No remotely deployed OAuth/SSO; local process compromise out of scope |
-| Hung or runaway contained worker | Hard deadline, process tree kill, resource limits, bounded output, orphan reaping on restart | Not a sandbox: `setsid` and job breakaway escape, no filesystem or network isolation. Linux only verified. See [Worker containment](worker-containment.md) |
+| Hung or runaway contained worker | Hard deadline, process tree kill, resource limits, bounded output, orphan reaping on restart | Not a sandbox: `setsid` and job breakaway escape, no filesystem or network isolation. Tested in CI on Linux, macOS and Windows. See [Worker containment](worker-containment.md) |
 | Duplicate write after crash | Only read-only worker operations shipped | Durable write reconciliation remains future work |
 | Unsound model verification | Current verifier only checks preparation | Independent code/test artifact verifier pending |
 

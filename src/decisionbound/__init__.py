@@ -18,7 +18,7 @@ from .workflows import (WorkflowTask, WorkflowSpec, WorkflowJournal, WorkflowSup
                         IndependentTaskVerifier, PreparationWorker, ScriptedWorkflowWorker,
                         ModelInspectionWorker, CodingRepairWorker)
 
-__version__ = "0.6.0a1"
+__version__ = "0.13.0a1"
 __all__ = [
     "Decision", "Evidence", "Project", "TransferResult", "ContextItem", "ContextCapsule",
     "DecisionRepository", "TransferPolicy", "ContextCompiler", "AgentWorker",

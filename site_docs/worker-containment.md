@@ -2,9 +2,9 @@
 
 `ContainedWorker` runs a task in a real child process that DecisionBound can kill, together with everything the child started. It gives hard deadlines, cancellation that works across processes, and cleanup after a coordinator crash.
 
-**Status:** implemented and tested with real child and grandchild processes on **Linux only**. The Windows job object path and the macOS identity path were written from platform documentation and have not been executed by the authors. Gate G17 stays open until the CI matrix, a Docker gate and an external security review report results.
+**Status:** implemented and tested with real child and grandchild processes. The containment tests pass in CI on Linux, macOS and Windows (Python 3.11 to 3.13), which was the first run of the Windows job object and macOS identity paths. Review findings that remain open for Windows are listed under "What is not guaranteed". Gate G17 stays open until the CI matrix, a Docker gate and an external security review report results.
 
-**Claim limit:** hard deadline and tree termination for contained workers on Linux, with the documented escapes below. macOS and Windows make no claim until CI results exist. This is not a security sandbox.
+**Claim limit:** hard deadline and tree termination for contained workers, tested in CI on Linux, macOS and Windows, with the documented escapes below. This is not a security sandbox.
 
 ## What you get
 
@@ -111,6 +111,8 @@ The reaper never changes task state except to block an unconfirmed task. The jou
 - There is no lifeline pipe or subreaper. After a coordinator `SIGKILL` on POSIX, workers run until the next coordinator reaps them.
 - A crash between spawn and the pid record can leave an unrecorded process on POSIX. Windows is covered by job close.
 - Existing in-process workers (`PreparationWorker`, `CodingRepairWorker`) were not converted. They are still not killable.
+- On Windows, the orphan reaper kills by process id with `taskkill` and does not check the job object, so a descendant that left the tree can survive a row marked clean.
+- On Windows, the CPU time limit and memory limit are enforced by the job object, but there is no open file limit.
 - A descendant that escapes the group and keeps the worker's stdout open is not detected. The run can finish while that process lives on.
 - `RLIMIT_CPU` and `RLIMIT_AS` apply per process, not to the whole tree.
 - A `WorkflowSupervisor` used without the coordinator never reaps orphans. Call `dbound workflow reap-orphans` or run the coordinator.

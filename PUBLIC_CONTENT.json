@@ -247,6 +247,7 @@
     "tests/unit/test_onboarding_sprint10.py",
     "tests/unit/test_profiles.py",
     "tests/unit/test_provider_adapters.py",
-    "tests/unit/test_require_executed.py"
+    "tests/unit/test_require_executed.py",
+    "tests/unit/test_version_consistency.py"
   ]
 }
