@@ -599,13 +599,13 @@ def test_cpu_limit_is_enforced_by_the_operating_system(env):
 def test_worker_started_event_records_enforced_limits_without_secrets(env, monkeypatch):
     monkeypatch.setenv("DBOUND_SECRET_SENTINEL", "must-not-leak")
     wid = make_workflow(env)
-    limits = C.ResourceLimits(max_open_files=64)
+    limits = C.ResourceLimits(max_cpu_seconds=120)  # enforced on Linux, macOS and Windows
     supervise(env, {"mock": contained(env, OK_RECEIPT, limits=limits)}, wid)
     started = events_named(env, wid, "worker_started")
     assert len(started) == 1
     metadata = started[0]["metadata"]
     assert metadata["level"] == C.probe_capabilities().level
-    assert "max_open_files" in metadata["enforced"] and "containment_id" in metadata
+    assert "max_cpu_seconds" in metadata["enforced"] and "containment_id" in metadata
     text = json.dumps(env.journal.events(wid))
     assert "must-not-leak" not in text and sys.executable not in text
 
@@ -717,11 +717,12 @@ def test_validation_of_limits_and_worker_configuration(env):
             C.ContainedWorker(options.pop("argv"), **options)
 
 
-@pytest.mark.skipif(IS_WINDOWS, reason="max_processes is enforced by Windows job objects")
 def test_a_requested_limit_the_host_cannot_enforce_fails_closed(env):
+    # POSIX has no per-tree process cap here, and Windows job objects have no open file cap.
+    unenforceable = C.ResourceLimits(max_open_files=64) if IS_WINDOWS else C.ResourceLimits(max_processes=8)
     wid = make_workflow(env)
     lease = env.journal.claim(wid, worker_kinds={"mock"}, lease_seconds=30)
-    worker = contained(env, OK_RECEIPT, limits=C.ResourceLimits(max_processes=8))
+    worker = contained(env, OK_RECEIPT, limits=unenforceable)
     with pytest.raises(C.ContainmentFailure):
         worker.execute(lease.assignment())
     assert rows(env.store) == []
