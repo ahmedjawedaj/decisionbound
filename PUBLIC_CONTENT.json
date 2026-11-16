@@ -221,6 +221,7 @@
     "tests/integration/test_state_migration_sprint13.py",
     "tests/integration/test_supervised_docker_real_optional.py",
     "tests/integration/test_supervised_sprint07.py",
+    "tests/integration/test_worker_containment_sprint14.py",
     "tests/integration/test_workflow_cli_web_sprint06.py",
     "tests/integration/test_workflow_sprint06.py",
     "tests/performance/README.md",
