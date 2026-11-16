@@ -2,6 +2,7 @@
 from __future__ import annotations
 import hashlib
 import json
+import os
 import subprocess
 import uuid
 from pathlib import Path
@@ -202,8 +203,10 @@ def test_verifier_rejects_manually_forged_receipt(project):
 
 def test_patch_file_artifact_has_owner_only_permissions(project):
     result = execute(project)
-    mode = Path(result.patch_artifact).stat().st_mode & 0o777
-    assert mode == 0o600
+    assert Path(result.patch_artifact).is_file()
+    if os.name == 'posix':  # NTFS has no POSIX mode bits to assert on.
+        mode = Path(result.patch_artifact).stat().st_mode & 0o777
+        assert mode == 0o600
 
 
 def test_two_mock_test_commands_and_early_failure(project):
@@ -250,3 +253,28 @@ def test_docker_simulated_receipt_positive_branch(project, monkeypatch):
                      test_commands=(('python', '-c', 'assert 1 + 1 == 2'),))
     assert result.acceptance_verified
     assert not result.task_completed
+
+
+def test_clean_crlf_checkout_with_user_autocrlf_is_accepted(tmp_path, monkeypatch):
+    # Git for Windows enables core.autocrlf in its system config, which the
+    # isolated Git environment hides. A clean CRLF checkout must not look dirty.
+    home = tmp_path / 'home'
+    home.mkdir()
+    (home / '.gitconfig').write_text('[core]\n\tautocrlf = true\n', encoding='utf-8')
+    monkeypatch.setenv('HOME', str(home))
+    monkeypatch.setenv('USERPROFILE', str(home))
+    monkeypatch.delenv('GIT_CONFIG_GLOBAL', raising=False)
+    monkeypatch.delenv('XDG_CONFIG_HOME', raising=False)
+    root = tmp_path / 'crlf-repo'
+    root.mkdir()
+    git(root, 'init', '-q')
+    git(root, 'config', 'user.name', 'Test Agent')
+    git(root, 'config', 'user.email', 'test@example.invalid')
+    (root / 'app.py').write_bytes(b'VALUE = 1\r\n')
+    git(root, 'add', 'app.py')
+    git(root, 'commit', '-qm', 'initial')
+    manager = GitWorktreeManager(tmp_path / 'state')
+    assert manager.check_source(root)[1] == git(root, 'rev-parse', 'HEAD')
+    (root / 'app.py').write_bytes(b'VALUE = 2\r\n')
+    with pytest.raises(WorkspaceError, match='unrelated changes'):
+        manager.check_source(root)

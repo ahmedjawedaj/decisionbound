@@ -91,7 +91,9 @@ class DockerTestRunner(IsolatedTestRunner):
         if original.is_symlink():
             raise ValueError('Symlinked workspace')
         root = original.resolve(strict=True)
-        if not root.is_dir() or any(c in str(root) for c in ',:\n\r'):
+        # A Windows drive prefix such as ``C:`` is safe; any other colon is not.
+        mount_path = str(root)[len(root.drive):]
+        if not root.is_dir() or any(c in mount_path for c in ',:\n\r'):
             raise ValueError('Workspace path cannot be mounted safely')
         daemon = os.environ.get('DOCKER_HOST', '')
         if daemon and not daemon.startswith('unix://'):

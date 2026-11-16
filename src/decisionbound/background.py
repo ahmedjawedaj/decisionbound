@@ -36,7 +36,8 @@ class ResourceBudgetExceeded(RuntimeError):
 def resident_memory_mib() -> float:
     """Measure current process RSS without third-party dependencies.
 
-    On Linux, use the process' resident page count. On macOS or other POSIX
+    On Linux, use the process' resident page count. On Windows, use the current
+    working set from ``GetProcessMemoryInfo``. On macOS or other POSIX
     platforms, fall back to ru_maxrss (peak rather than current RSS). Unsupported
     platforms fail closed when a resource cap is requested, never claim 0 MiB.
     """
@@ -49,7 +50,40 @@ def resident_memory_mib() -> float:
         import sys
         value = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         return value / (1024**2 if sys.platform == 'darwin' else 1024)
+    if os.name == 'nt':
+        working_set = _windows_working_set_bytes()
+        if working_set is not None:
+            return working_set / 1024**2
     raise RuntimeError('Current process RSS measurement unavailable on this host')
+
+
+def _windows_working_set_bytes() -> int | None:
+    """Return the current process working set on Windows, or None on failure."""
+    import ctypes
+    from ctypes import wintypes
+
+    class ProcessMemoryCounters(ctypes.Structure):
+        _fields_ = [('cb', wintypes.DWORD), ('PageFaultCount', wintypes.DWORD),
+                    ('PeakWorkingSetSize', ctypes.c_size_t), ('WorkingSetSize', ctypes.c_size_t),
+                    ('QuotaPeakPagedPoolUsage', ctypes.c_size_t), ('QuotaPagedPoolUsage', ctypes.c_size_t),
+                    ('QuotaPeakNonPagedPoolUsage', ctypes.c_size_t),
+                    ('QuotaNonPagedPoolUsage', ctypes.c_size_t),
+                    ('PagefileUsage', ctypes.c_size_t), ('PeakPagefileUsage', ctypes.c_size_t)]
+
+    try:
+        kernel32 = ctypes.WinDLL('kernel32')
+        psapi = ctypes.WinDLL('psapi')
+    except OSError:
+        return None
+    kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+    psapi.GetProcessMemoryInfo.argtypes = [wintypes.HANDLE, ctypes.POINTER(ProcessMemoryCounters),
+                                           wintypes.DWORD]
+    psapi.GetProcessMemoryInfo.restype = wintypes.BOOL
+    counters = ProcessMemoryCounters()
+    counters.cb = ctypes.sizeof(counters)
+    if not psapi.GetProcessMemoryInfo(kernel32.GetCurrentProcess(), ctypes.byref(counters), counters.cb):
+        return None
+    return int(counters.WorkingSetSize)
 
 
 @dataclass(frozen=True)
