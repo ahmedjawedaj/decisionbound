@@ -10,7 +10,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import hashlib
 import json
 import math
@@ -31,6 +31,10 @@ _FINISHED = frozenset({"verified", "mock_passed", "needs_real_tests", "blocked",
 _NON_SUCCESS = frozenset({"mock_passed", "needs_real_tests", "blocked", "cancelled", "failed"})
 _ALLOWED_KINDS = frozenset({"prepare", "inspect", "mock", "code", "review"})
 _ROLES = frozenset({"general", "planner", "researcher", "implementer", "reviewer", "tester"})
+_CONTAINMENT_EVENTS = frozenset({"worker_started", "worker_exited", "worker_terminated", "containment_refused",
+                                 "orphan_terminated", "orphan_gone", "orphan_identity_mismatch",
+                                 "orphan_unconfirmed"})
+_QUARANTINE_REASONS = frozenset({"untrusted_result", "over_budget", "invalid_receipt", "containment_failed"})
 
 
 class WorkflowConflict(RuntimeError):
@@ -223,12 +227,51 @@ class WorkerReceipt:
     cost_usd: float = 0.0
 
 
+@dataclass
+class ExecutionControl:
+    """Host-side cancellation handle for one running claim.
+
+    The supervisor creates one per lease and sets :attr:`cancel` when the claim
+    is revoked, the deadline of the whole run passes, the stop grace expires or
+    leadership is lost. It carries claim *references* (workflow, task, attempt
+    and generation) for evidence records. It never carries the private owner
+    token, so a worker that receives it still cannot finalize its own task.
+    """
+    workflow_id: str
+    task_id: str
+    attempt: int
+    generation: int
+    cancel: threading.Event = field(default_factory=threading.Event)
+    reason: str = ""
+    _lock: Any = field(default_factory=threading.Lock, repr=False, compare=False)
+
+    def request_cancel(self, reason: str) -> None:
+        """Ask the worker to stop. The first reason given is kept."""
+        with self._lock:
+            if not self.cancel.is_set():
+                self.reason = reason
+                self.cancel.set()
+
+
 class WorkflowWorker(ABC):
-    """Overridable per-kind worker; cannot claim or finalize tasks directly."""
+    """Overridable per-kind worker; cannot claim or finalize tasks directly.
+
+    Workers that run in a supervisor thread cannot be forcibly stopped. Only a
+    worker that overrides :meth:`execute_controlled` and owns a killable
+    process tree, such as ``ContainedWorker``, can honor cancellation.
+    """
 
     @abstractmethod
     def execute(self, lease: TaskAssignment) -> WorkerReceipt:
         """Perform a bounded task and return a source-free completion receipt."""
+
+    def execute_controlled(self, assignment: TaskAssignment, control: ExecutionControl) -> WorkerReceipt:
+        """Perform the task while honoring ``control``; defaults to :meth:`execute`.
+
+        The default ignores ``control``, so existing in-process workers keep
+        their documented behavior: they are not killable.
+        """
+        return self.execute(assignment)
 
 
 class PreparationWorker(WorkflowWorker):
@@ -727,7 +770,7 @@ class WorkflowJournal:
 
     def quarantine(self, lease: TaskLease, *, reason: str = "untrusted_result") -> None:
         """Mark an uncertain or over-budget claim terminal without retrying it."""
-        if reason not in {"untrusted_result", "over_budget", "invalid_receipt"}:
+        if reason not in _QUARANTINE_REASONS:
             raise ValueError("Invalid quarantine reason")
         with self.store._connection() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -740,6 +783,51 @@ class WorkflowJournal:
                        (reason, lease.workflow_id, lease.task.task_id))
             self._event(db, lease.workflow_id, lease.task.task_id, "quarantined", {"reason": reason})
             self._refresh(db, lease.workflow_id, time.time())
+
+    def note_late_result(self, lease: TaskLease, reason: str) -> None:
+        """Record, as an event only, that a result or failure arrived after the claim was lost.
+
+        No task state changes. The compare-and-swap in :meth:`finish` and
+        :meth:`fail` is what rejects the late result. This adds the evidence.
+        """
+        if not isinstance(reason, str) or not re.fullmatch(r"[a-z_]{1,48}", reason):
+            raise ValueError("Invalid late result reason")
+        with self.store._connection() as db:
+            self._event(db, lease.workflow_id, lease.task.task_id, "late_result_rejected",
+                        {"reason": reason, "stale_generation": lease.generation, "attempt": lease.attempt})
+
+    def record_containment_event(self, workflow_id: str, task_id: str | None, event: str,
+                                 metadata: dict | None = None) -> None:
+        """Append one allowlisted containment event (no task state changes).
+
+        Only fixed event names are accepted so that process evidence cannot
+        impersonate scheduler transitions such as ``claimed`` or ``finished``.
+        """
+        if event not in _CONTAINMENT_EVENTS:
+            raise ValueError("Unknown containment event")
+        with self.store._connection() as db:
+            self._event(db, workflow_id, task_id, event, metadata)
+
+    def block_uncontained(self, workflow_id: str, task_id: str, generation: int) -> bool:
+        """Block a task that was leased or pending at exactly ``generation``.
+
+        Used when a worker process could not be proven dead. Returns False and
+        changes nothing when the task already moved on to another generation or
+        a terminal state, so a newer claim is never disturbed.
+        """
+        with self.store._connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            exists = db.execute("SELECT 1 FROM workflows WHERE workflow_id=? AND state='running'",
+                                (workflow_id,)).fetchone()
+            if exists is None:
+                return False
+            count = db.execute("UPDATE workflow_tasks SET state='blocked',owner_token=NULL,lease_until=NULL,error_type='containment_failed' WHERE workflow_id=? AND task_id=? AND generation=? AND state IN ('leased','pending')",
+                               (workflow_id, task_id, generation)).rowcount
+            if count != 1:
+                return False
+            self._event(db, workflow_id, task_id, "quarantined", {"reason": "containment_failed"})
+            self._refresh(db, workflow_id, time.time())
+        return True
 
     def fail(self, lease: TaskLease, exc: Exception, *, now: float | None = None) -> None:
         """Fail safely. Only read-only tasks may retry after a definite exception."""
