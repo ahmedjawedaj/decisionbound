@@ -1,0 +1,255 @@
+"""Tests for the connected-gate guard that stops silent skips from passing CI."""
+from __future__ import annotations
+
+import importlib.util
+import json
+import subprocess
+import sys
+import textwrap
+import zipfile
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def _load():
+    spec = importlib.util.spec_from_file_location("dbound_require_executed", ROOT / "scripts" / "require_executed.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+guard = _load()
+
+DOCKER = "tests/integration/test_docker_real_optional.py"
+SUPERVISED = "tests/integration/test_supervised_docker_real_optional.py"
+
+
+def _xml(path: Path, cases: str) -> Path:
+    path.write_text('<?xml version="1.0" encoding="utf-8"?><testsuites><testsuite name="pytest">'
+                    + cases + '</testsuite></testsuites>', encoding="utf-8")
+    return path
+
+
+def _passed(module: str, name: str = "test_it") -> str:
+    return f'<testcase classname="{module}" name="{name}" time="0.1"/>'
+
+
+def test_all_required_files_executed_and_passed_is_accepted(tmp_path):
+    xml = _xml(tmp_path / "r.xml", _passed("tests.integration.test_docker_real_optional")
+               + _passed("tests.integration.test_supervised_docker_real_optional"))
+    assert guard.check_junit([xml], [DOCKER, SUPERVISED]) == []
+
+
+def test_zero_tests_for_a_named_file_is_rejected(tmp_path):
+    xml = _xml(tmp_path / "r.xml", _passed("tests.integration.test_docker_real_optional"))
+    problems = guard.check_junit([xml], [DOCKER, SUPERVISED])
+    assert len(problems) == 1
+    assert SUPERVISED in problems[0] and "zero tests" in problems[0]
+
+
+def test_skipped_test_is_rejected_and_reason_is_shown(tmp_path):
+    xml = _xml(tmp_path / "r.xml",
+               '<testcase classname="tests.integration.test_docker_real_optional" name="test_real">'
+               '<skipped type="pytest.skip" message="Docker smoke requires a pre-pulled image"/></testcase>')
+    problems = guard.check_junit([xml], [DOCKER])
+    assert len(problems) == 1
+    assert "SKIPPED" in problems[0] and "pre-pulled image" in problems[0]
+
+
+def test_module_level_skip_is_attributed_to_its_file(tmp_path):
+    # pytest reports allow_module_level skips with an empty classname and the module as the name.
+    xml = _xml(tmp_path / "r.xml",
+               '<testcase classname="" name="tests.integration.test_browser_live_sprint10_optional">'
+               '<skipped message="collection skipped">Requires connected host</skipped></testcase>')
+    problems = guard.check_junit([xml], ["tests/integration/test_browser_live_sprint10_optional.py"])
+    assert any("SKIPPED" in p for p in problems)
+    assert not any("zero tests" in p for p in problems)
+
+
+def test_failure_and_error_are_rejected(tmp_path):
+    xml = _xml(tmp_path / "r.xml",
+               '<testcase classname="tests.integration.test_docker_real_optional" name="a"><failure message="boom"/></testcase>'
+               '<testcase classname="tests.integration.test_supervised_docker_real_optional" name="b"><error message="bad"/></testcase>')
+    problems = guard.check_junit([xml], [DOCKER, SUPERVISED])
+    assert any("FAILED" in p and "boom" in p for p in problems)
+    assert any("ERROR" in p and "bad" in p for p in problems)
+
+
+def test_one_skip_among_passes_still_fails(tmp_path):
+    xml = _xml(tmp_path / "r.xml", _passed("tests.integration.test_docker_real_optional", "a")
+               + '<testcase classname="tests.integration.test_docker_real_optional" name="b"><skipped message="x"/></testcase>')
+    assert guard.check_junit([xml], [DOCKER])
+
+
+def test_a_similarly_named_file_does_not_satisfy_a_requirement(tmp_path):
+    xml = _xml(tmp_path / "r.xml", _passed("tests.integration.test_docker_real_optional_extra"))
+    problems = guard.check_junit([xml], [DOCKER])
+    assert problems and "zero tests" in problems[0]
+
+
+def test_class_based_tests_are_attributed_to_their_module(tmp_path):
+    xml = _xml(tmp_path / "r.xml", _passed("tests.integration.test_docker_real_optional.TestReal"))
+    assert guard.check_junit([xml], [DOCKER]) == []
+
+
+def test_results_from_several_xml_files_are_combined(tmp_path):
+    first = _xml(tmp_path / "a.xml", _passed("tests.integration.test_docker_real_optional"))
+    second = _xml(tmp_path / "b.xml", _passed("tests.integration.test_supervised_docker_real_optional"))
+    assert guard.check_junit([first, second], [DOCKER, SUPERVISED]) == []
+
+
+def test_missing_or_malformed_xml_is_rejected(tmp_path):
+    bad = tmp_path / "bad.xml"
+    bad.write_text("<testsuites><oops", encoding="utf-8")
+    assert guard.check_junit([tmp_path / "absent.xml"], [DOCKER])
+    assert any("parse" in p.lower() for p in guard.check_junit([bad], [DOCKER]))
+
+
+def test_empty_requirement_list_is_a_usage_error(tmp_path):
+    xml = _xml(tmp_path / "r.xml", _passed("tests.integration.test_docker_real_optional"))
+    assert guard.main(["junit", "--require", "", str(xml)]) == 2
+
+
+def test_cli_exit_codes_and_message(tmp_path, capsys):
+    good = _xml(tmp_path / "good.xml", _passed("tests.integration.test_docker_real_optional"))
+    assert guard.main(["junit", "--require", DOCKER, str(good)]) == 0
+    bad = _xml(tmp_path / "bad.xml", '<testcase classname="tests.integration.test_docker_real_optional" name="t"><skipped message="no docker"/></testcase>')
+    assert guard.main(["junit", "--require", DOCKER, str(bad)]) == 1
+    err = capsys.readouterr().err
+    assert "test_docker_real_optional" in err and "no docker" in err
+
+
+def test_real_pytest_run_with_module_skip_fails_the_guard(tmp_path):
+    """End to end: a genuine pytest JUnit file for a silently skipping module is rejected."""
+    sample = tmp_path / "test_silent_skip_optional.py"
+    sample.write_text(textwrap.dedent("""
+        import pytest
+        pytest.skip('opt-in not enabled', allow_module_level=True)
+        def test_never_runs():
+            assert True
+    """), encoding="utf-8")
+    xml = tmp_path / "junit.xml"
+    result = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "--rootdir", str(tmp_path),
+                             str(sample), f"--junitxml={xml}"], cwd=tmp_path, capture_output=True, text=True)
+    assert result.returncode == 5 or "skipped" in result.stdout  # no test executed
+    problems = guard.check_junit([xml], ["test_silent_skip_optional.py"])
+    assert problems and any("SKIPPED" in p for p in problems)
+
+
+def test_real_pytest_run_that_executes_passes_the_guard(tmp_path):
+    sample = tmp_path / "test_runs_optional.py"
+    sample.write_text("def test_runs():\n    assert 1 + 1 == 2\n", encoding="utf-8")
+    xml = tmp_path / "junit.xml"
+    subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "--rootdir", str(tmp_path),
+                    str(sample), f"--junitxml={xml}"], cwd=tmp_path, capture_output=True, text=True, check=True)
+    assert guard.check_junit([xml], ["test_runs_optional.py"]) == []
+
+
+# ---- log marker mode (real VS Code host runs emit no JUnit file) ----
+
+def test_log_markers_all_present(tmp_path):
+    log = tmp_path / "host.log"
+    log.write_text("Loading development extension at /x\nExtension host test runner exit code: 0\n", encoding="utf-8")
+    assert guard.check_log(log, ["Loading development extension", "Extension host test runner exit code: 0"]) == []
+
+
+def test_log_marker_missing_is_rejected(tmp_path):
+    log = tmp_path / "host.log"
+    log.write_text("nothing useful\n", encoding="utf-8")
+    problems = guard.check_log(log, ["Extension host test runner exit code: 0"])
+    assert len(problems) == 1 and "exit code: 0" in problems[0]
+
+
+def test_log_missing_file_is_rejected(tmp_path):
+    assert guard.check_log(tmp_path / "absent.log", ["x"])
+
+
+def test_log_exit_code_nonzero_does_not_match_zero_marker(tmp_path):
+    log = tmp_path / "host.log"
+    log.write_text("Extension host test runner exit code: 1\n", encoding="utf-8")
+    assert guard.check_log(log, ["Extension host test runner exit code: 0"])
+
+
+# ---- certification report mode ----
+
+def _report(path: Path, **overrides) -> Path:
+    data = {"checks_passed": ["a", "real_uvicorn_node_extension_transport"], "real_http_node": True}
+    data.update(overrides)
+    path.write_text(json.dumps(data), encoding="utf-8")
+    return path
+
+
+def test_report_with_required_check_and_flag_is_accepted(tmp_path):
+    report = _report(tmp_path / "r.json")
+    assert guard.check_report(report, ["real_uvicorn_node_extension_transport"], ["real_http_node"]) == []
+
+
+def test_report_missing_check_or_false_flag_is_rejected(tmp_path):
+    report = _report(tmp_path / "r.json", checks_passed=["a"], real_http_node=False)
+    problems = guard.check_report(report, ["real_uvicorn_node_extension_transport"], ["real_http_node"])
+    assert len(problems) == 2
+
+
+def test_report_failed_certification_or_bad_json_is_rejected(tmp_path):
+    assert guard.check_report(_report(tmp_path / "r.json", certification="failed"), [], [])
+    broken = tmp_path / "broken.json"
+    broken.write_text("{not json", encoding="utf-8")
+    assert guard.check_report(broken, [], [])
+    assert guard.check_report(tmp_path / "absent.json", [], [])
+
+
+def test_report_with_utf16_bom_from_powershell_is_read(tmp_path):
+    path = tmp_path / "r.json"
+    path.write_bytes(json.dumps({"checks_passed": ["x"], "real_http_node": True}).encode("utf-16"))
+    assert guard.check_report(path, ["x"], ["real_http_node"]) == []
+
+
+# ---- VSIX packaging mode ----
+
+def _vsix(path: Path, members: dict[str, str]) -> Path:
+    with zipfile.ZipFile(path, "w") as archive:
+        for name, content in members.items():
+            archive.writestr(name, content)
+    return path
+
+
+GOOD_VSIX = {"extension.vsixmanifest": "<xml/>", "[Content_Types].xml": "<xml/>",
+             "extension/package.json": json.dumps({"name": "x", "main": "./src/extension.cjs"}),
+             "extension/src/extension.cjs": "module.exports = {};"}
+
+
+def test_vsix_with_manifest_and_entry_is_accepted(tmp_path):
+    assert guard.check_vsix(_vsix(tmp_path / "a.vsix", GOOD_VSIX)) == []
+
+
+def test_vsix_missing_file_or_not_a_zip_is_rejected(tmp_path):
+    assert guard.check_vsix(tmp_path / "absent.vsix")
+    fake = tmp_path / "fake.vsix"
+    fake.write_text("not a zip", encoding="utf-8")
+    assert guard.check_vsix(fake)
+
+
+def test_vsix_missing_entry_point_or_manifest_is_rejected(tmp_path):
+    no_entry = {k: v for k, v in GOOD_VSIX.items() if k != "extension/src/extension.cjs"}
+    assert any("entry" in p for p in guard.check_vsix(_vsix(tmp_path / "a.vsix", no_entry)))
+    no_manifest = {k: v for k, v in GOOD_VSIX.items() if k != "extension.vsixmanifest"}
+    assert guard.check_vsix(_vsix(tmp_path / "b.vsix", no_manifest))
+
+
+def test_vsix_empty_entry_point_is_rejected(tmp_path):
+    empty = dict(GOOD_VSIX, **{"extension/src/extension.cjs": ""})
+    assert guard.check_vsix(_vsix(tmp_path / "a.vsix", empty))
+
+
+def test_cli_vsix_mode(tmp_path):
+    assert guard.main(["vsix", str(_vsix(tmp_path / "a.vsix", GOOD_VSIX))]) == 0
+    assert guard.main(["vsix", str(tmp_path / "absent.vsix")]) == 1
+
+
+@pytest.mark.parametrize("argv", [[], ["junit"], ["log"], ["report"], ["vsix"], ["bogus"]])
+def test_cli_usage_errors_exit_two(argv):
+    assert guard.main(argv) == 2

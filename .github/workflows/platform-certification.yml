@@ -29,7 +29,11 @@ jobs:
       - name: Install built wheel into runner Python
         run: python scripts/install_built_wheel.py --no-deps
       - name: Certify real CLI and real local Node↔Uvicorn HTTP
-        run: python scripts/certify_platform.py --http-node
+        shell: bash
+        run: python scripts/certify_platform.py --http-node | tee certification-report.json
+      - name: Require the real Node to Uvicorn transport check to have executed
+        shell: bash
+        run: python scripts/require_executed.py report --check real_uvicorn_node_extension_transport --check source_checkout_unchanged --flag real_http_node certification-report.json
   vscode-real-host-cross-os:
     # Downloads a real VS Code host and launches the extension in Electron.
     # Linux uses Xvfb; Windows runs in the hosted desktop environment.
@@ -44,6 +48,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
       - name: Offline extension contract tests
         working-directory: apps/vscode
         run: npm test
@@ -55,13 +62,20 @@ jobs:
         shell: bash
         run: |
           if [[ "$RUNNER_OS" == "Linux" ]]; then
-            xvfb-run -a npm run test:host
+            xvfb-run -a npm run test:host 2>&1 | tee ../../vscode-host.log
           else
-            npm run test:host
+            npm run test:host 2>&1 | tee ../../vscode-host.log
           fi
+      - name: Require the real host to have loaded the extension and exited 0
+        shell: bash
+        run: |
+          python scripts/require_executed.py log --marker "Loading development extension at" --marker "Extension host test runner exit code: 0" vscode-host.log
       - name: Build VSIX from package metadata
         working-directory: apps/vscode
         run: npm run package:vsix
+      - name: Require a real VSIX that contains the extension manifest and entry
+        shell: bash
+        run: python scripts/require_executed.py vsix apps/vscode/dist/decisionbound-local.vsix
       - name: Upload extension install artifact
         uses: actions/upload-artifact@v4
         with:
