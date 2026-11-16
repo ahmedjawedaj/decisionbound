@@ -52,7 +52,7 @@ def safe_relative_path(root: Path, relative: str) -> Path:
         ValueError: An absolute, parent-traversal or symlink escape is present.
     """
     path = Path(relative)
-    if path.is_absolute() or ".." in path.parts:
+    if path.is_absolute() or path.anchor or ".." in path.parts:
         raise ValueError("Paths must be relative and cannot traverse parents")
     base = root.resolve(strict=True)
     target = (base / path).resolve(strict=True)

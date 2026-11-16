@@ -2940,7 +2940,8 @@ resident_memory_mib() -> float
 
 Measure current process RSS without third-party dependencies.
 
-On Linux, use the process' resident page count. On macOS or other POSIX
+On Linux, use the process' resident page count. On Windows, use the current
+working set from ``GetProcessMemoryInfo``. On macOS or other POSIX
 platforms, fall back to ru_maxrss (peak rather than current RSS). Unsupported
 platforms fail closed when a resource cap is requested, never claim 0 MiB.
 
