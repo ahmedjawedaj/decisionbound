@@ -91,3 +91,46 @@ The two built-in worker options are `PatchFileProposer` (deterministic local pat
 - `CodexCLIPatchProposer` and `ClaudeCLIPatchProposer`: optional external CLI shims, not full native agent SDK implementations. No custom adapter may gain patch write/test/merge authority.
 
 Read [Repair loops](repair-loops.md) and [Native adapters](native-adapters.md) for contract and override examples. API signatures and docstrings are regenerated in [API reference](api-reference.md).
+
+## End-to-end example
+
+This script creates temporary state, discovers an ADR, approves its unchanged evidence as an explicit operator decision, and prepares a context capsule. It is executed by the test suite.
+
+<!-- sdk-quickstart:begin -->
+```python
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+from decisionbound import SQLiteRepository
+from decisionbound.identity import init_project
+from decisionbound.services import DecisionService
+
+with TemporaryDirectory() as directory:
+    workspace = Path(directory) / "example-project"
+    workspace.mkdir()
+    store = SQLiteRepository(Path(directory) / "state" / "state.sqlite3")
+    project = init_project(workspace, store, name="example-project",
+                           technologies=("python",))
+
+    (workspace / "architecture.md").write_text(
+        "# Domain boundaries\n\n"
+        "## Context\nKeep transport logic easy to test.\n\n"
+        "## Decision\nKeep handlers thin and isolate domain rules.\n",
+        encoding="utf-8",
+    )
+
+    service = DecisionService(store)
+    candidate = service.discover_adr(project, workspace, "architecture.md")
+    # This approval is an explicit application/operator decision.
+    service.approve(workspace, candidate.decision_id, candidate.revision)
+    capsule = service.prepare("Inspect domain boundaries", project,
+                              max_tokens=1200)
+    print(capsule.to_dict())
+```
+<!-- sdk-quickstart:end -->
+
+Output from a real run (identifiers differ each time; `items` is a tuple, so Python prints it in parentheses):
+
+```text
+{'task': 'Inspect domain boundaries', 'items': ({'key': 'dec_...', 'text': 'Keep handlers thin and isolate domain rules.', 'source': 'architecture.md#sha256=bc4a61de...', 'protected': False, 'priority': 10},), 'omitted_keys': (), 'estimated_tokens': 18, 'max_tokens': 1200}
+```
