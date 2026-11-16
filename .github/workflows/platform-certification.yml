@@ -30,10 +30,14 @@ jobs:
         run: python scripts/install_built_wheel.py --no-deps
       - name: Certify real CLI and real local Node↔Uvicorn HTTP
         shell: bash
-        run: python scripts/certify_platform.py --http-node | tee certification-report.json
+        env:
+          CERT_REPORT: ${{ runner.temp }}/certification-report.json
+        run: python scripts/certify_platform.py --http-node | tee "$CERT_REPORT"
       - name: Require the real Node to Uvicorn transport check to have executed
         shell: bash
-        run: python scripts/require_executed.py report --check real_uvicorn_node_extension_transport --check source_checkout_unchanged --flag real_http_node certification-report.json
+        env:
+          CERT_REPORT: ${{ runner.temp }}/certification-report.json
+        run: python scripts/require_executed.py report --check real_uvicorn_node_extension_transport --check source_checkout_unchanged --flag real_http_node --expect package_source=installed-distribution "$CERT_REPORT"
   vscode-real-host-cross-os:
     # Downloads a real VS Code host and launches the extension in Electron.
     # Linux uses Xvfb; Windows runs in the hosted desktop environment.
@@ -60,22 +64,26 @@ jobs:
       - name: Launch genuine Extension Development Host
         working-directory: apps/vscode
         shell: bash
+        env:
+          HOST_LOG: ${{ runner.temp }}/vscode-host.log
         run: |
           if [[ "$RUNNER_OS" == "Linux" ]]; then
-            xvfb-run -a npm run test:host 2>&1 | tee ../../vscode-host.log
+            xvfb-run -a npm run test:host 2>&1 | tee "$HOST_LOG"
           else
-            npm run test:host 2>&1 | tee ../../vscode-host.log
+            npm run test:host 2>&1 | tee "$HOST_LOG"
           fi
-      - name: Require the real host to have loaded the extension and exited 0
+      - name: Require the real host to have loaded the extension and run the smoke test to its end
         shell: bash
+        env:
+          HOST_LOG: ${{ runner.temp }}/vscode-host.log
         run: |
-          python scripts/require_executed.py log --marker "Loading development extension at" --marker "Extension host test runner exit code: 0" vscode-host.log
+          python scripts/require_executed.py log --marker "Loading development extension at" --marker "Extension host test runner exit code: 0" --marker "DBOUND_HOST_SMOKE_OK commands=5" --forbid "Extension host test runner exit code: [1-9]" --forbid "VS Code host smoke failed" "$HOST_LOG"
       - name: Build VSIX from package metadata
         working-directory: apps/vscode
         run: npm run package:vsix
       - name: Require a real VSIX that contains the extension manifest and entry
         shell: bash
-        run: python scripts/require_executed.py vsix apps/vscode/dist/decisionbound-local.vsix
+        run: python scripts/require_executed.py vsix --source-package apps/vscode/package.json apps/vscode/dist/decisionbound-local.vsix
       - name: Upload extension install artifact
         uses: actions/upload-artifact@v4
         with:

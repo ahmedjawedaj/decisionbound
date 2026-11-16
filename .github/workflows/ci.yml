@@ -58,7 +58,7 @@ jobs:
       - name: Exercise actual in-memory MCP protocol client
         run: python -m pytest -q tests/integration/test_mcp_v2_optional.py --junitxml=${{ runner.temp }}/junit-mcp.xml
       - name: Require MCP SDK tests to have executed (no skips)
-        run: python scripts/require_executed.py junit --require tests/integration/test_mcp_v2_optional.py ${{ runner.temp }}/junit-mcp.xml
+        run: python scripts/require_executed.py junit --require tests/integration/test_mcp_v2_optional.py=1 --min-total 1 ${{ runner.temp }}/junit-mcp.xml
   static-demo:
     runs-on: ubuntu-latest
     steps:
@@ -94,7 +94,7 @@ jobs:
           DBOUND_LOOPBACK_HTTP_TEST: '1'
         run: python -m pytest -q tests/integration/test_client_loopback_sprint09_optional.py tests/integration/test_setup_loopback_sprint10_optional.py --junitxml=${{ runner.temp }}/junit-loopback.xml
       - name: Require loopback HTTP tests to have executed (no skips)
-        run: python scripts/require_executed.py junit --require tests/integration/test_client_loopback_sprint09_optional.py --require tests/integration/test_setup_loopback_sprint10_optional.py ${{ runner.temp }}/junit-loopback.xml
+        run: python scripts/require_executed.py junit --require tests/integration/test_client_loopback_sprint09_optional.py=1 --require tests/integration/test_setup_loopback_sprint10_optional.py=1 --min-total 2 ${{ runner.temp }}/junit-loopback.xml
   vscode-extension:
     # No npm network install required. This is a real extension entry source,
     # but CI mocks the VS Code host until an Extension Development Host test runs.
@@ -130,7 +130,7 @@ jobs:
           DBOUND_DOCKER_TEST_IMAGE: python:3.12-slim
         run: python -m pytest -q tests/integration/test_docker_real_optional.py tests/integration/test_supervised_docker_real_optional.py --junitxml=${{ runner.temp }}/junit-docker.xml
       - name: Require Docker sandbox tests to have executed (no skips)
-        run: python scripts/require_executed.py junit --require tests/integration/test_docker_real_optional.py --require tests/integration/test_supervised_docker_real_optional.py ${{ runner.temp }}/junit-docker.xml
+        run: python scripts/require_executed.py junit --require tests/integration/test_docker_real_optional.py=1 --require tests/integration/test_supervised_docker_real_optional.py=1 --min-total 2 ${{ runner.temp }}/junit-docker.xml
   wheel-clean-install:
     runs-on: ubuntu-latest
     permissions:
@@ -170,9 +170,11 @@ jobs:
       - name: Test review interactions against mocked API in a real browser
         env:
           DBOUND_BROWSER_TEST: '1'
-        run: python -m pytest -q tests/integration/test_review_ui_offline_sprint08_optional.py tests/integration/test_client_browser_sprint09_optional.py tests/integration/test_setup_browser_sprint10_optional.py --junitxml=${{ runner.temp }}/junit-browser-dom.xml
+          # Also enables the real-Chromium review UI test that no job ran before this guard.
+          DBOUND_BROWSER_HTTP_TEST: '1'
+        run: python -m pytest -q tests/integration/test_review_ui_offline_sprint08_optional.py tests/integration/test_client_browser_sprint09_optional.py tests/integration/test_setup_browser_sprint10_optional.py tests/integration/test_review_browser_sprint08_optional.py --junitxml=${{ runner.temp }}/junit-browser-dom.xml
       - name: Require browser DOM tests to have executed (no skips)
-        run: python scripts/require_executed.py junit --require tests/integration/test_review_ui_offline_sprint08_optional.py --require tests/integration/test_client_browser_sprint09_optional.py --require tests/integration/test_setup_browser_sprint10_optional.py ${{ runner.temp }}/junit-browser-dom.xml
+        run: python scripts/require_executed.py junit --require tests/integration/test_review_ui_offline_sprint08_optional.py=1 --require tests/integration/test_client_browser_sprint09_optional.py=1 --require tests/integration/test_setup_browser_sprint10_optional.py=1 --require tests/integration/test_review_browser_sprint08_optional.py=1 --min-total 4 ${{ runner.temp }}/junit-browser-dom.xml
 
   vscode-real-host:
     # Connected host certification. This actually starts a VS Code Electron
@@ -191,13 +193,18 @@ jobs:
       - name: Start Electron Extension Development Host and inspect commands
         working-directory: apps/vscode
         shell: bash
-        run: xvfb-run -a npm run test:host 2>&1 | tee ../../vscode-host.log
+        env:
+          HOST_LOG: ${{ runner.temp }}/vscode-host.log
+        run: xvfb-run -a npm run test:host 2>&1 | tee "$HOST_LOG"
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-      - name: Require the real host to have loaded the extension and exited 0
+      - name: Require the real host to have loaded the extension and run the smoke test to its end
+        shell: bash
+        env:
+          HOST_LOG: ${{ runner.temp }}/vscode-host.log
         run: |
-          python scripts/require_executed.py log --marker "Loading development extension at" --marker "Extension host test runner exit code: 0" vscode-host.log
+          python scripts/require_executed.py log --marker "Loading development extension at" --marker "Extension host test runner exit code: 0" --marker "DBOUND_HOST_SMOKE_OK commands=5" --forbid "Extension host test runner exit code: [1-9]" --forbid "VS Code host smoke failed" "$HOST_LOG"
 
   vscode-package:
     # Packaging is not Marketplace publication or a signed trust assertion.
@@ -219,7 +226,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Require a real VSIX that contains the extension manifest and entry
-        run: python scripts/require_executed.py vsix apps/vscode/dist/decisionbound-local.vsix
+        run: python scripts/require_executed.py vsix --source-package apps/vscode/package.json apps/vscode/dist/decisionbound-local.vsix
       - uses: actions/upload-artifact@v4
         with:
           name: decisionbound-local-vsix
@@ -246,7 +253,7 @@ jobs:
           DBOUND_BROWSER_LIVE: '1'
         run: python -m pytest -q tests/integration/test_browser_live_sprint10_optional.py --junitxml=${{ runner.temp }}/junit-browser-live.xml
       - name: Require browser-to-server tests to have executed (no skips)
-        run: python scripts/require_executed.py junit --require tests/integration/test_browser_live_sprint10_optional.py ${{ runner.temp }}/junit-browser-live.xml
+        run: python scripts/require_executed.py junit --require tests/integration/test_browser_live_sprint10_optional.py=1 --min-total 1 ${{ runner.temp }}/junit-browser-live.xml
 
   integration-gate:
     name: integration-gate

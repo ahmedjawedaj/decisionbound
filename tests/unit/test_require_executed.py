@@ -135,7 +135,9 @@ def test_real_pytest_run_with_module_skip_fails_the_guard(tmp_path):
     xml = tmp_path / "junit.xml"
     result = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "--rootdir", str(tmp_path),
                              str(sample), f"--junitxml={xml}"], cwd=tmp_path, capture_output=True, text=True)
-    assert result.returncode == 5 or "skipped" in result.stdout  # no test executed
+    import xml.etree.ElementTree as ET
+    suite = next(ET.parse(xml).getroot().iter("testsuite"))
+    assert suite.get("skipped") == "1" and suite.get("failures") == "0" and suite.get("errors") == "0"
     problems = guard.check_junit([xml], ["test_silent_skip_optional.py"])
     assert problems and any("SKIPPED" in p for p in problems)
 
@@ -217,9 +219,12 @@ def _vsix(path: Path, members: dict[str, str]) -> Path:
     return path
 
 
-GOOD_VSIX = {"extension.vsixmanifest": "<xml/>", "[Content_Types].xml": "<xml/>",
-             "extension/package.json": json.dumps({"name": "x", "main": "./src/extension.cjs"}),
-             "extension/src/extension.cjs": "module.exports = {};"}
+ENTRY = "const vscode = require('vscode');\nexports.activate = function activate(context) { return { refresh() {} }; };\n"
+
+GOOD_VSIX = {"extension.vsixmanifest": "<PackageManifest/>", "[Content_Types].xml": "<Types/>",
+             "extension/package.json": json.dumps({"name": "x", "publisher": "p", "version": "1.2.3",
+                                                    "main": "./src/extension.cjs"}),
+             "extension/src/extension.cjs": ENTRY}
 
 
 def test_vsix_with_manifest_and_entry_is_accepted(tmp_path):
@@ -253,3 +258,166 @@ def test_cli_vsix_mode(tmp_path):
 @pytest.mark.parametrize("argv", [[], ["junit"], ["log"], ["report"], ["vsix"], ["bogus"]])
 def test_cli_usage_errors_exit_two(argv):
     assert guard.main(argv) == 2
+
+
+# ---- review round: stricter modes ----
+
+def test_unlisted_failing_test_in_the_results_is_rejected(tmp_path):
+    xml = _xml(tmp_path / "r.xml", _passed("tests.integration.test_docker_real_optional")
+               + '<testcase classname="tests.other.test_stray" name="t"><skipped message="stray skip"/></testcase>')
+    problems = guard.check_junit([xml], [DOCKER])
+    assert len(problems) == 1 and "unlisted" in problems[0] and "stray skip" in problems[0]
+
+
+def test_xfail_counts_as_not_executed(tmp_path):
+    xml = _xml(tmp_path / "r.xml", '<testcase classname="tests.integration.test_docker_real_optional" name="t">'
+               '<skipped type="pytest.xfail" message="expected failure"/></testcase>')
+    problems = guard.check_junit([xml], [DOCKER])
+    assert problems and "SKIPPED" in problems[0]
+
+
+def test_require_must_name_a_python_file(tmp_path, capsys):
+    xml = _xml(tmp_path / "r.xml", _passed("tests.integration.test_docker_real_optional"))
+    for bad in ("tests/integration", "tests/integration/test_docker_real_optional", "x.txt=1", "a.py=0", "a.py=x", "=2"):
+        assert guard.main(["junit", "--require", bad, str(xml)]) == 2, bad
+    assert "usage error" in capsys.readouterr().err
+
+
+def test_minimum_test_count_per_file(tmp_path):
+    xml = _xml(tmp_path / "r.xml", _passed("tests.integration.test_docker_real_optional", "a")
+               + _passed("tests.integration.test_docker_real_optional", "b"))
+    assert guard.main(["junit", "--require", DOCKER + "=2", str(xml)]) == 0
+    assert guard.main(["junit", "--require", DOCKER + "=3", str(xml)]) == 1
+
+
+def test_minimum_total_count_across_files(tmp_path):
+    xml = _xml(tmp_path / "r.xml", _passed("tests.integration.test_docker_real_optional")
+               + _passed("tests.integration.test_supervised_docker_real_optional"))
+    base = ["junit", "--require", DOCKER, "--require", SUPERVISED]
+    assert guard.main(base + ["--min-total", "2", str(xml)]) == 0
+    assert guard.main(base + ["--min-total", "3", str(xml)]) == 1
+    assert guard.main(base + ["--min-total", "0", str(xml)]) == 2
+
+
+def test_parse_requirement():
+    assert guard.parse_requirement("a/b.py") == ("a/b.py", 1)
+    assert guard.parse_requirement("a/b.py=4") == ("a/b.py", 4)
+    with pytest.raises(ValueError):
+        guard.parse_requirement("a/b")
+
+
+def test_log_marker_does_not_match_a_longer_number(tmp_path):
+    log = tmp_path / "host.log"
+    log.write_text("Extension host test runner exit code: 01\n", encoding="utf-8")
+    assert guard.check_log(log, ["Extension host test runner exit code: 0"])
+
+
+def test_log_marker_ending_in_equals_matches_a_following_number(tmp_path):
+    log = tmp_path / "host.log"
+    log.write_text("DBOUND_HOST_SMOKE_OK commands=5\n", encoding="utf-8")
+    assert guard.check_log(log, ["DBOUND_HOST_SMOKE_OK commands="]) == []
+    assert guard.check_log(log, ["DBOUND_HOST_SMOKE_OK commands=5"]) == []
+    assert guard.check_log(log, ["DBOUND_HOST_SMOKE_OK commands=6"])
+
+
+FORBID = ["Extension host test runner exit code: [1-9]", "VS Code host smoke failed"]
+
+
+def test_log_forbidden_patterns_are_rejected_even_when_markers_exist(tmp_path):
+    log = tmp_path / "host.log"
+    log.write_text("Loading development extension at /x\nExtension host test runner exit code: 0\n"
+                   "VS Code host smoke failed: boom\n", encoding="utf-8")
+    problems = guard.check_log(log, ["Loading development extension at"], FORBID)
+    assert len(problems) == 1 and "smoke failed" in problems[0]
+    log.write_text("Extension host test runner exit code: 1\n", encoding="utf-8")
+    assert guard.check_log(log, [], FORBID)
+    log.write_text("Extension host test runner exit code: 0\n", encoding="utf-8")
+    assert guard.check_log(log, [], FORBID) == []
+
+
+def test_log_forbid_invalid_regex_is_a_usage_error(tmp_path):
+    log = tmp_path / "host.log"
+    log.write_text("x\n", encoding="utf-8")
+    assert guard.main(["log", "--marker", "x", "--forbid", "(", str(log)]) == 2
+
+
+def test_main_success_paths_for_log_and_report(tmp_path, capsys):
+    log = tmp_path / "host.log"
+    log.write_text("Loading development extension at /x\nExtension host test runner exit code: 0\n", encoding="utf-8")
+    assert guard.main(["log", "--marker", "Loading development extension at",
+                       "--forbid", FORBID[0], str(log)]) == 0
+    assert "OK" in capsys.readouterr().out
+    report = _report(tmp_path / "r.json", package_source="installed-distribution")
+    assert guard.main(["report", "--check", "real_uvicorn_node_extension_transport", "--flag", "real_http_node",
+                       "--expect", "package_source=installed-distribution", str(report)]) == 0
+    assert "OK" in capsys.readouterr().out
+    assert guard.main(["report", "--check", "missing_check", str(report)]) == 1
+
+
+def test_report_must_be_a_json_object_starting_the_file(tmp_path):
+    arr = tmp_path / "a.json"
+    arr.write_text("[1, 2]", encoding="utf-8")
+    assert any("object" in p for p in guard.check_report(arr, [], []))
+    lead = tmp_path / "lead.json"
+    lead.write_text("warning text\n" + json.dumps({"checks_passed": ["x"]}), encoding="utf-8")
+    assert any("start" in p for p in guard.check_report(lead, ["x"], []))
+
+
+def test_report_any_certification_value_is_rejected(tmp_path):
+    # certify_platform.py prints no certification key on success, only {"certification": "failed", ...} on failure.
+    for value in ("failed", "passed", "ok", ""):
+        assert guard.check_report(_report(tmp_path / "r.json", certification=value), [], []), value
+
+
+def test_report_non_empty_checks_failed_is_rejected(tmp_path):
+    assert guard.check_report(_report(tmp_path / "r.json", checks_failed=["boom"]), [], [])
+    assert guard.check_report(_report(tmp_path / "r.json", checks_failed=[]), [], []) == []
+
+
+def test_report_expect_value_mismatch_is_rejected(tmp_path):
+    report = _report(tmp_path / "r.json", package_source="editable")
+    problems = guard.check_report(report, [], [], ["package_source=installed-distribution"])
+    assert len(problems) == 1 and "package_source" in problems[0]
+    assert guard.check_report(tmp_path / "r.json", [], [], ["package_source"])  # malformed expectation
+
+
+def _source(path: Path, **overrides) -> Path:
+    data = {"name": "x", "publisher": "p", "version": "1.2.3"}
+    data.update(overrides)
+    path.write_text(json.dumps(data), encoding="utf-8")
+    return path
+
+
+def test_vsix_identity_must_match_source_package(tmp_path):
+    vsix = _vsix(tmp_path / "a.vsix", GOOD_VSIX)
+    assert guard.check_vsix(vsix, _source(tmp_path / "ok.json")) == []
+    for field, value in (("name", "other"), ("publisher", "q"), ("version", "9.9.9")):
+        problems = guard.check_vsix(vsix, _source(tmp_path / "bad.json", **{field: value}))
+        assert len(problems) == 1 and field in problems[0], field
+    assert guard.check_vsix(vsix, tmp_path / "absent.json")
+
+
+def test_vsix_manifest_must_be_an_object(tmp_path):
+    members = dict(GOOD_VSIX, **{"extension/package.json": "[1]"})
+    assert any("object" in p for p in guard.check_vsix(_vsix(tmp_path / "a.vsix", members)))
+
+
+def test_vsix_requires_content_types_and_non_empty_manifest(tmp_path):
+    no_types = {k: v for k, v in GOOD_VSIX.items() if k != "[Content_Types].xml"}
+    assert any("Content_Types" in p for p in guard.check_vsix(_vsix(tmp_path / "a.vsix", no_types)))
+    blank = dict(GOOD_VSIX, **{"extension.vsixmanifest": "  \n"})
+    assert any("vsixmanifest" in p for p in guard.check_vsix(_vsix(tmp_path / "b.vsix", blank)))
+
+
+@pytest.mark.parametrize("entry", ["", "x", "// only a comment about the extension entry point and nothing else\n",
+                                   "/* block comment that is long enough to look like content but is not */",
+                                   "module.exports = {};"])
+def test_vsix_entry_must_contain_real_code(tmp_path, entry):
+    members = dict(GOOD_VSIX, **{"extension/src/extension.cjs": entry})
+    assert any("entry" in p for p in guard.check_vsix(_vsix(tmp_path / "a.vsix", members)))
+
+
+def test_cli_vsix_mode_with_source_package(tmp_path):
+    vsix = _vsix(tmp_path / "a.vsix", GOOD_VSIX)
+    assert guard.main(["vsix", "--source-package", str(_source(tmp_path / "s.json")), str(vsix)]) == 0
+    assert guard.main(["vsix", "--source-package", str(_source(tmp_path / "s.json", version="2")), str(vsix)]) == 1
