@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import sqlite3
+import statistics
 import threading
 import time
 from contextlib import contextmanager
@@ -111,8 +112,6 @@ def test_slow_commits_do_not_starve_a_writer_past_the_busy_timeout(tmp_path):
     the timeout, which raised OperationalError even though work was progressing.
     """
     class SlowCommit(SQLiteRepository):
-        busy_timeout_seconds = 0.5
-
         @contextmanager
         def _connection(self):
             with super()._connection() as db:
@@ -120,6 +119,16 @@ def test_slow_commits_do_not_starve_a_writer_past_the_busy_timeout(tmp_path):
                 time.sleep(0.015)
 
     store = SlowCommit(tmp_path / "state.sqlite3")
+    # Scale the timeout to this machine's real commit latency. A fixed value is
+    # too tight on a slow Windows disk, where one commit can take hundreds of
+    # milliseconds and a queued writer legitimately waits for several of them.
+    # Twelve commits is still far shorter than the whole workload of 160.
+    samples = []
+    for _ in range(5):
+        began = time.perf_counter()
+        store.record_event("calibrate", "calibrate", {})
+        samples.append(time.perf_counter() - began)
+    store.busy_timeout_seconds = max(0.25, 12 * statistics.median(samples))
     errors: list[BaseException] = []
 
     def writer(worker: int) -> None:
