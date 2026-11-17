@@ -57,6 +57,20 @@ def test_health_survives_the_wal_file_vanishing_mid_check(live, monkeypatch):
     assert inspect_database(live.path).wal_bytes == 0
 
 
+def test_health_does_not_hide_a_permission_error_on_the_wal_file(live, monkeypatch):
+    """Only a missing file counts as no WAL. Any other failure to read it must stay visible."""
+    real_stat = Path.stat
+
+    def denied(self, *args, **kwargs):
+        if self.name.endswith("-wal"):
+            raise PermissionError(13, "Permission denied", str(self))
+        return real_stat(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", denied)
+    with pytest.raises(PermissionError):
+        inspect_database(live.path)
+
+
 def test_health_reports_the_wal_size_when_present(live):
     wal = live.path.with_name(live.path.name + "-wal")
     wal.write_bytes(b"x" * 10)
