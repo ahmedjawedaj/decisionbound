@@ -17,7 +17,7 @@ DecisionBound is a local-first Python library and CLI for one narrow question: *
 
 It is for developers building or running coding agents who want decisions to carry authority, evidence and limits, and for researchers studying when remembered decisions should not transfer. It is not an agent, a model, a code generator or a hosted service. The default path makes no model call, needs no account or API key and no network request.
 
-> **Experimental alpha, version `0.13.0a1`.** The commands below work as shown. The transfer policy is a conservative rule set and has not been shown to beat simple baselines (see [Status](#status-and-evidence)). Nothing here is production certified or independently security reviewed. It is installed from source: there is no PyPI package and no editor Marketplace release.
+> **Experimental alpha, version `0.13.0a1`.** The commands below work as shown. The transfer policy is a conservative rule set and has not been shown to beat simple baselines (see [Status](#status-and-evidence)). Nothing here is production certified or independently security reviewed. Use the source installation below; published packages are listed on [PyPI](https://pypi.org/project/decisionbound/) when available. There is no editor Marketplace release.
 
 ## Install
 
@@ -206,7 +206,7 @@ DecisionBound is not the first tool or benchmark in this space. These are the cl
 - [VibeMemBench](https://arxiv.org/html/2609.23570) compares memory systems for coding agents on real repositories.
 - [COUNTERMEM](https://arxiv.org/abs/2609.31874) studies verified corrections and when an agent should skip memory.
 
-What this project adds is narrower than any of these on its own: cross-repository reuse of human-approved decisions with an explicit apply, translate, abstain or escalate response. That combination has no real-repository benchmark yet. The bundled fixtures are synthetic and cannot support outside claims.
+What this project explores is cross-repository reuse of human-approved decisions with an explicit apply, translate, abstain or escalate response. CarryBench is an early, AI-labelled attempt to evaluate that combination; its current results do not establish a benefit. The separate TransferBench fixtures are synthetic and cannot support outside claims.
 
 For agent hosts, the read-only server follows the [Model Context Protocol](https://modelcontextprotocol.io/) and uses the [official MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk) through the optional `mcp` extra.
 
@@ -224,7 +224,7 @@ Original DecisionBound material is licensed under [Apache License 2.0](LICENSE).
 
 ### Citation
 
-If you use the software, cite the version or commit using [CITATION.cff](CITATION.cff). GitHub's **Cite this repository** feature reads that metadata. No DOI, peer-reviewed result, signed production release, PyPI publication, or Marketplace distribution is implied by the source repository.
+If you use the software, cite the version or commit using [CITATION.cff](CITATION.cff). GitHub's **Cite this repository** feature reads that metadata. The source repository does not imply a DOI, peer-reviewed result, signed production release or Marketplace distribution. Check the package index and release pages for distribution availability.
 
 ```bibtex
 @software{jawed2026decisionbound,
