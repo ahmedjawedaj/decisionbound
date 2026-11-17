@@ -1,0 +1,119 @@
+name: Windows evidence
+on:
+  push:
+    branches: ['evidence/**']
+permissions:
+  contents: read
+jobs:
+  stress:
+    name: stress ${{ matrix.os }} ${{ matrix.variant }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, windows-2022]
+        variant: [before, after]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install
+        run: python -m pip install -e '.[test]'
+      - name: Use the storage module from main for the before variant
+        if: matrix.variant == 'before'
+        run: git checkout 2c4d9a21a752d6f82860253d36f17c1dec391a6a -- src/decisionbound/storage.py
+      - name: Host facts
+        run: |
+          python -c "import platform,sys,os;print(platform.platform(),sys.version.split()[0],os.cpu_count())"
+          (Get-CimInstance Win32_OperatingSystem | Select-Object Caption,Version,TotalVisibleMemorySize | Format-List | Out-String)
+          python -c "import hashlib;print('storage.py sha256',hashlib.sha256(open('src/decisionbound/storage.py','rb').read()).hexdigest())"
+      - name: Repeat the CI stress step and a heavier profile
+        shell: pwsh
+        run: |
+          $profiles = @(
+            @{name='ci'; w=4; e=100; b=2; runs=30},
+            @{name='heavy'; w=8; e=150; b=3; runs=20})
+          $report = @()
+          foreach ($p in $profiles) {
+            $ok = 0; $fail = 0; $p99 = @(); $errors = @{}
+            for ($i = 0; $i -lt $p.runs; $i++) {
+              $out = python scripts/stress_local_state.py --writers $p.w --events-per-writer $p.e --backups $p.b 2>&1
+              if ($LASTEXITCODE -eq 0) {
+                $ok++
+                try { $p99 += [double](($out | Select-Object -Last 1 | ConvertFrom-Json).write_p99_ms) } catch {}
+              } else {
+                $fail++
+                $line = [string]($out | Select-Object -Last 1)
+                if ($errors.ContainsKey($line)) { $errors[$line]++ } else { $errors[$line] = 1 }
+              }
+            }
+            $sorted = $p99 | Sort-Object
+            $report += [pscustomobject]@{
+              os = '${{ matrix.os }}'; variant = '${{ matrix.variant }}'; profile = $p.name
+              writers = $p.w; events_per_writer = $p.e; backups = $p.b
+              runs = $p.runs; passed = $ok; failed = $fail
+              write_p99_ms_median = $(if ($sorted.Count) { $sorted[[int]($sorted.Count / 2)] } else { $null })
+              write_p99_ms_max = $(if ($sorted.Count) { $sorted[-1] } else { $null })
+              errors = $errors }
+          }
+          $json = $report | ConvertTo-Json -Depth 5 -Compress
+          Write-Host "EVIDENCE_RESULT $json"
+          $report | Format-Table os,variant,profile,runs,passed,failed,write_p99_ms_median,write_p99_ms_max | Out-String | Add-Content $env:GITHUB_STEP_SUMMARY
+
+  suite:
+    name: suite ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install
+        run: python -m pip install -e '.[test,web,docs,release]'
+      - name: Full test suite with skip reasons
+        shell: pwsh
+        run: |
+          python -m pytest -q -rs tests/unit tests/integration tests/security tests/contract --junitxml=junit-full.xml 2>&1 | Tee-Object -FilePath full.log | Select-Object -Last 40
+          Write-Host "EVIDENCE_FULL exit=$LASTEXITCODE"
+          exit 0
+      - name: Real Windows job object test must execute, not skip
+        shell: pwsh
+        run: |
+          python -m pytest -v -rs tests/unit/test_windows_reaper_job.py::test_open_job_object_on_a_real_windows_host 2>&1 | Tee-Object -FilePath jobobject.log
+          Write-Host "EVIDENCE_JOBOBJECT exit=$LASTEXITCODE"
+          exit 0
+      - name: Repeat the two formerly flaky tests
+        shell: pwsh
+        run: |
+          $tests = @(
+            'tests/integration/test_workflow_sprint06.py::test_concurrent_supervisors_stress_no_duplicate_claims_and_global_cap',
+            'tests/integration/test_background_coordinator_sprint13.py::test_keyset_rotation_does_not_starve_new_workflows',
+            'tests/unit/test_storage_fair_lock.py')
+          $report = @()
+          foreach ($t in $tests) {
+            $ok = 0; $fail = 0
+            for ($i = 0; $i -lt 15; $i++) {
+              python -m pytest -q -p no:cacheprovider $t *> $null
+              if ($LASTEXITCODE -eq 0) { $ok++ } else { $fail++ }
+            }
+            $report += [pscustomobject]@{ os = '${{ matrix.os }}'; test = $t; runs = 15; passed = $ok; failed = $fail }
+          }
+          Write-Host "EVIDENCE_REPEAT $($report | ConvertTo-Json -Compress)"
+          $report | Format-Table | Out-String | Add-Content $env:GITHUB_STEP_SUMMARY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-evidence-${{ matrix.os }}
+          path: |
+            junit-full.xml
+            full.log
+            jobobject.log
