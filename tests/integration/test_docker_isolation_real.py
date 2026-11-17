@@ -121,7 +121,8 @@ def test_control_an_explicit_env_value_or_socket_mount_is_seen_by_the_probe():
     assert _control(NO_SECRETS_AND_NO_DOCKER_SOCKET, "-v", "/var/run/docker.sock:/var/run/docker.sock") == 1
 
 
-# Mount points the daemon always adds from its own files, and file systems that are not host paths.
+# Mount points the daemon always adds from its own files, and file systems that are not disk backed.
+# A bind of a tmpfs-backed host directory (for example /dev/shm) looks like tmpfs here and is not detected.
 DAEMON_FILE_MOUNTS = ("/etc/hostname", "/etc/hosts", "/etc/resolv.conf")
 NO_HOST_PATH_IS_MOUNTED_EXCEPT_THE_WORKSPACE = (
     "import sys\n"
@@ -136,7 +137,7 @@ NO_HOST_PATH_IS_MOUNTED_EXCEPT_THE_WORKSPACE = (
     "sys.exit(0 if not extra else 1)\n")
 
 
-def test_no_host_path_is_mounted_except_the_workspace(tmp_path):
+def test_no_disk_backed_host_path_is_mounted_except_the_workspace(tmp_path):
     (tmp_path / "marker.txt").write_text("visible")
     assert _probe(tmp_path, NO_HOST_PATH_IS_MOUNTED_EXCEPT_THE_WORKSPACE).exit_code == 0
     assert _probe(tmp_path, "import sys; sys.exit(0 if open('/workspace/marker.txt').read() == 'visible' else 1)").exit_code == 0
