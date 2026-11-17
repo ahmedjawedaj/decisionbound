@@ -87,7 +87,7 @@ On Windows, schedule a persistent logged-in user task using Task Scheduler's *re
 | Risk | Current local behavior | Required next gate |
 |---|---|---|
 | Two coordinators claim one local state DB | Exclusive SQLite leader token and monotonically increasing generation | Competing-process crash and clock-change drills |
-| Worker runs beyond initial claim TTL | Host renews task lease periodically while waiting. A `ContainedWorker` also has a hard deadline and its process tree is killed | Docker and Windows job object gates in CI. Thread workers remain unkillable |
+| Worker runs beyond initial claim TTL | Host renews task lease periodically while waiting. A `ContainedWorker` also has a hard deadline and its process tree is killed | Docker and Windows job object gates in CI (containment tests have passed on windows-latest). Thread workers remain unkillable |
 | Coordinator killed while a contained worker runs | The next coordinator reaps the tree before dispatching, killing only a process whose start token matches | Real long-run drills. No lifeline pipe, so workers run until the next coordinator starts |
 | Process killed midway through a read-only task | Expired zero-cost claims can retry within `max_attempts` | Extended kill/restart soak |
 | Paid or write-capable task interrupted | Uncertain outcome quarantined; no automatic replay | Audited reconciliation workflow and external idempotency receipts |
@@ -99,7 +99,7 @@ On Windows, schedule a persistent logged-in user task using Task Scheduler's *re
 ## Quality gates and endurance plan
 
 1. **G16 Local 24–72 hour soak:** scripted worker/provider failures, monotonic memory growth checks, no lost events, bounded service CPU at idle, safe signal stop and `SIGKILL` restart; record versions, p50/p95/p99, RSS and recovery delay.
-2. **G17 Worker isolation:** hard process kill, sandbox policy enforcement, failure to terminate escalation; no thread-only timeout claims. *Partially met:* hard deadline, tree kill, orphan reaping and fail-closed termination are implemented and tested on Linux in [Worker containment](worker-containment.md). Open: Windows job object and macOS results from CI, the Docker gate, and an external security review.
+2. **G17 Worker isolation:** hard process kill, sandbox policy enforcement, failure to terminate escalation; no thread-only timeout claims. *Partially met:* hard deadline, tree kill, orphan reaping and fail-closed termination are implemented and tested on Linux in [Worker containment](worker-containment.md). Windows job object and macOS containment tests passed in CI (run 43940948953), except the new Windows reaper job check, which is unverified on real Windows. Open: the Docker gate and an external security review.
 3. **G18 Multi-host orchestration:** PostgreSQL transactional queue and immutable receipts; lease generations, remote worker auth, per-tenant budgets, single-writer outbox and split-brain tests. SQLite cannot serve as distributed consensus.
 4. **G19 Scale/resources:** measure idle CPU/RSS, open descriptors, startup and task latency, provider token cost per verified outcome, adaptive queue polling and backpressure. Set measurable gates before launch.
 5. **G20 Production security/operability:** supply chain, signing and rollbacks, rotating credentials, least-privilege execution, independent audit, runbooks, SLOs and incident drills.

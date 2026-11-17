@@ -244,6 +244,7 @@
     "tests/integration/test_code_workflow.py",
     "tests/integration/test_concurrent_readonly_runs.py",
     "tests/integration/test_docker_real_optional.py",
+    "tests/integration/test_docs_quickstart.py",
     "tests/integration/test_mcp_v2_optional.py",
     "tests/integration/test_repair_budgets_sprint05.py",
     "tests/integration/test_repair_sprint05.py",
@@ -286,6 +287,7 @@
     "tests/unit/test_provider_adapters.py",
     "tests/unit/test_require_executed.py",
     "tests/unit/test_transferbench_controlled_v1.py",
-    "tests/unit/test_version_consistency.py"
+    "tests/unit/test_version_consistency.py",
+    "tests/unit/test_windows_reaper_job.py"
   ]
 }

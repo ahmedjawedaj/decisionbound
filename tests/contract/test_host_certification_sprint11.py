@@ -1,5 +1,6 @@
 """Host-certification harness checks independent of installed vendor binaries."""
 from __future__ import annotations
+import ast
 import importlib.util
 import json
 import os
@@ -70,3 +71,33 @@ def test_host_certificate_reports_disallowed_external_integration_as_untested():
     for text in ("external_providers_tested\": False", "vscode_host_tested\": False",
                  "docker_tested\": False", "DBOUND_HOME", "TemporaryDirectory"):
         assert text in source
+
+
+def test_certify_script_uses_no_assert_statements():
+    """``python -O`` deletes assert statements, calls inside them included.
+
+    Under -O the real certificate used to skip two ``dbound state check`` runs and
+    still list the backup check as passed. Every check must raise explicitly.
+    """
+    tree = ast.parse((ROOT / "scripts" / "certify_platform.py").read_text(encoding="utf-8"))
+    lines = sorted(node.lineno for node in ast.walk(tree) if isinstance(node, ast.Assert))
+    assert not lines, f"assert statements at lines {lines} vanish under python -O"
+
+
+def test_certify_check_helper_still_fails_under_python_O():
+    """The explicit check helper must raise AssertionError even with -O (no asserts stripped)."""
+    code = (
+        "import importlib.util, sys\n"
+        "spec = importlib.util.spec_from_file_location('c', sys.argv[1])\n"
+        "m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)\n"
+        "m._expect(True, 'fine')\n"
+        "try:\n"
+        "    m._expect(False, 'boom')\n"
+        "except AssertionError as e:\n"
+        "    print('raised', e)\n"
+        "else:\n"
+        "    print('SILENT PASS')\n")
+    result = subprocess.run([sys.executable, "-O", "-c", code, str(ROOT / "scripts" / "certify_platform.py")],
+                            capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "raised boom"

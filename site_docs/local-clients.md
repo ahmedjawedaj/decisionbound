@@ -107,11 +107,13 @@ The extension's `LocalControlClient` takes a dependency-injected `fetchImpl` and
 
 The regression suite tests CLI/API/SQLite consistency, stable cursors, cross-project isolation, malicious Host/Origin requests, approval propagation, file tampering, concurrent readers/writers, and VS Code transport mocks. A real Chromium DOM test exercises the new session panel with mocked HTTP responses.
 
-**Not yet certified:** a real VS Code Extension Development Host launch, live browser-to-server Chromium navigation, native Claude/Codex CLI runs, Docker test sandbox, official MCP v2 protocol, cross-machine sessions, multi-tenant auth, production-grade SSE/replay guarantees, and research benchmarking. Follow [Security](security.md), [Roadmap](roadmap.md), and `CONNECTED_INTEGRATION_TEST_PLAN.md` for the next gates.
+**Connected CI results:** the real VS Code Extension Development Host launch, browser-to-server Chromium navigation, Docker test sandbox and official MCP v2 protocol jobs each passed in GitHub Actions run 43940948953 (branch `bench/carrybench-real-v1`), behind the skip guard in `scripts/require_executed.py`. Those jobs cover the paths their tests exercise, not real project workflows.
+
+**Not yet certified:** native Claude/Codex CLI runs, cross-machine sessions, multi-tenant auth, production-grade SSE/replay guarantees, and research benchmarking. Follow [Security](security.md), [Roadmap](roadmap.md), and `CONNECTED_INTEGRATION_TEST_PLAN.md` for the next gates.
 
 
 ##  connected-host certification
 
-`apps/vscode/test/host/runner.cjs` uses the official VS Code test harness to launch a genuine Extension Development Host in connected CI; it checks extension activation and command contributions. `npm run package:vsix` builds a reviewable VSIX in the connected packaging job, but is not Marketplace publication or a certification of real project workflows. Neither host test nor packaging has yet passed in the restricted local sandbox.
+`apps/vscode/test/host/runner.cjs` uses the official VS Code test harness to launch a genuine Extension Development Host in connected CI; it checks extension activation and command contributions. `npm run package:vsix` builds a reviewable VSIX in the connected packaging job, but is not Marketplace publication or a certification of real project workflows. Neither has been run in the restricted local sandbox. In GitHub Actions run 43948004993 on `main` (commit `cbf6368`), the real-host and VSIX-packaging steps of the `Real VS Code extension host` jobs passed on Ubuntu and Windows.
 
 The new **DecisionBound: Check Local Setup** command fetches the authenticated `GET /api/setup/v1/status` endpoint, displays prerequisite readiness without exposing keys, and makes no provider calls. `dbound setup` and `dbound doctor` can be used without the editor. See [Setup & diagnostics](setup-diagnostics.md).

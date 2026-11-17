@@ -106,9 +106,20 @@ jobs:
           node-version: '22'
       - name: Validate VS Code extension entry and local protocol
         working-directory: apps/vscode
+        shell: bash
+        env:
+          NODE_TEST_LOG: ${{ runner.temp }}/vscode-node-test.log
         run: |
           npm run check
-          npm test
+          npm test 2>&1 | tee "$NODE_TEST_LOG"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Require the extension tests to have executed (no skips, todos or empty run)
+        shell: bash
+        env:
+          NODE_TEST_LOG: ${{ runner.temp }}/vscode-node-test.log
+        run: python scripts/require_executed.py node --min-tests 14 "$NODE_TEST_LOG"
   docker-code-sandbox:
     # Connected CI provides Docker; local development may skip this suite.
     # This proves one real network-disabled, non-root container test path.

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Rewrite the README around one 60-second offline demo (three projects, one approved decision, `apply`, `translate` and `abstain` outcomes, then a context capsule) with real output pasted from a run, an install that uses `pip install .`, and a plain status section that links CarryBench and says its labels are LLM-made with no human labels. The Pages quickstart now carries the same demo, a correct clone URL, and notes on confusing output (`approve` returns revision 2, `write_consent: false` is informational). Fix stale statements in the docs index, SDK page and `src/decisionbound/README.md`.
+- Add `tests/integration/test_docs_quickstart.py`: runs the README and Pages demo from the installed package and compares output with the documented blocks, checks that every `dbound` command and option in the docs exists, that documented pip extras exist, that README links resolve, that the example scripts and workflow manifests run, and runs the SDK example.
 - Add CarryBench-Real v1 under `benchmarks/carrybench/`: 66 real cases from 50 permissively licensed repositories as pinned pointers and hashes (no third-party text), labelled by two blind LLM annotators with no human labels, with a dataset card, agreement report, eight simple baselines, scores for the shipped transfer methods, two guide-free language model runs, 33 executable end-state checks on synthetic reductions, and fetch, mine, verify and scoring tools. The set is unvalidated and small, and every document says so.
 - Fix the package `__version__` (it said 0.6.0a1) and add a test that keeps it equal to `pyproject.toml` and `CITATION.cff`.
 - Add a README section on closely related decision-memory work, and say plainly that the bundled fixtures are synthetic.
