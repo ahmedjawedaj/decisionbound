@@ -4,6 +4,15 @@ DecisionBound is an alpha. It has local decision records, bounded source inspect
 
 The issue tracker is the source of truth. Each item below is an issue, and the milestones on GitHub use the same three headings. Issue titles below are copied from the tracker and may have changed since this page was last edited.
 
+## Goals
+
+These are the aims behind the list below. They are aims, not forecasts.
+
+- Keep DecisionBound open source under Apache-2.0, with the tracker, tests and docs public.
+- Do not make a research claim until human annotators have labelled the benchmark. All labels so far come from AI annotators of one model family (see #26).
+- Keep a small, honest alpha. Prefer closing verified gaps over adding features.
+- Place the work against related research and say plainly what it does and does not show. See the related work section on the research page.
+
 ## Near term
 
 Small items that are well understood.
@@ -11,6 +20,8 @@ Small items that are well understood.
 - [#19](https://github.com/ahmedjawedaj/decisionbound/issues/19) Decide whether DockerTestRunner should refuse a root caller. Needs a maintainer decision.
 - [#20](https://github.com/ahmedjawedaj/decisionbound/issues/20) Docker mount probe cannot detect a bind of a tmpfs-backed host directory.
 - [#21](https://github.com/ahmedjawedaj/decisionbound/issues/21) CarryBench config pointers can have no text hash, so a wrong line (cbh-006) passes verify.
+- [#31](https://github.com/ahmedjawedaj/decisionbound/issues/31) Stop BoundedReadOnlyAgent early on repeated identical calls and add an optional deadline.
+- [#32](https://github.com/ahmedjawedaj/decisionbound/issues/32) Mark and escape untrusted tool output in the read-only agent loop, and note when observations are cut.
 
 ## Next
 
@@ -20,6 +31,7 @@ Verification and design work that needs real effort.
 - [#23](https://github.com/ahmedjawedaj/decisionbound/issues/23) Run the model provider adapters against a real provider. Today the adapters are only tested with mocked HTTP.
 - [#24](https://github.com/ahmedjawedaj/decisionbound/issues/24) Test annotation guide v1.2 on a fresh unlabelled case set.
 - [#25](https://github.com/ahmedjawedaj/decisionbound/issues/25) Run and record a 24 to 72 hour soak of the durable service.
+- [#33](https://github.com/ahmedjawedaj/decisionbound/issues/33) Write down the fixed permission limits and the test behind each one.
 
 ## Needs outside help
 
