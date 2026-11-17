@@ -135,13 +135,17 @@ class SQLiteRepository(DecisionRepository):
         temporary.path = path
         temporary._initialize(allow_legacy_upgrade=True)
 
-    #: Seconds a connection waits for another writer, in this process or another.
+    #: Seconds SQLite waits for a lock held by another process or connection.
     busy_timeout_seconds: float = 10.0
+    #: A thread queued behind others in this process is making steady progress,
+    #: so it waits this many times longer before giving up. The cap only ends a
+    #: wait behind a holder that never releases.
+    queue_patience: float = 3.0
 
     @contextmanager
     def _connection(self) -> Iterator[sqlite3.Connection]:
         queue = _fair_lock_for(self.path)
-        queue.acquire(self.busy_timeout_seconds)
+        queue.acquire(self.busy_timeout_seconds * self.queue_patience)
         try:
             conn = sqlite3.connect(self.path, timeout=self.busy_timeout_seconds)
             conn.row_factory = sqlite3.Row
