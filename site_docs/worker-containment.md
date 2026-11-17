@@ -41,6 +41,21 @@ supervisor = WorkflowSupervisor(journal, workers={"inspect": worker})
 
 The child runs with the project as its working directory, so a relative script path would load code from the project. Always use an absolute path. The argv you choose decides what the child can do. DecisionBound does not grant write, model or network permission to a contained worker.
 
+## Running preparation in a killable child
+
+`PreparationWorker` runs in a supervisor thread, and a thread cannot be killed. `decisionbound.worker_child` is a ready child entrypoint for the offline `prepare` kind, so the same work can run under `ContainedWorker`:
+
+```python
+from decisionbound.containment import ProcessRegistry
+from decisionbound.worker_child import contained_preparation_worker
+
+worker = contained_preparation_worker(ProcessRegistry(store), deadline_seconds=120)
+```
+
+`dbound workflow serve --contained` does the same with a 120 second deadline. The child runs `python -I -m decisionbound.worker_child`, so the package must be installed. It refuses every kind except `prepare`, rejects unknown assignment fields and prints nothing on failure, which the host records as a crash. Its receipt is checked again by the host, which recomputes the capsule itself, so a child that reports a wrong digest is blocked.
+
+Coding repair is not moved into a child by this. A `code` task still needs an operator supplied argv, consented writes and an isolated runner.
+
 ## Worker protocol
 
 - **stdin:** one JSON object with `workflow_id`, `project_id`, `project_path`, `task`, `attempt`, `reserved_cost_usd` and `handoffs`. It carries no owner token and no generation.

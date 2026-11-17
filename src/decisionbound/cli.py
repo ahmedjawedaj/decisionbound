@@ -707,6 +707,7 @@ def workflow_serve(
     max_rss_mib: int = typer.Option(512, '--max-rss-mib'),
     allow_mock: bool = typer.Option(False, '--allow-mock', help='Explicitly enable synthetic mock stages'),
     low_resource: bool = typer.Option(False, '--low-resource', help='One task at a time, conservative memory and idle polling'),
+    contained: bool = typer.Option(False, '--contained', help='Run preparation in a killable child process with a deadline'),
 ) -> None:
     """Run an opt-in, restartable, single-device workflow coordinator.
 
@@ -714,6 +715,10 @@ def workflow_serve(
     execution, shell, Docker, and coding writes require separately injected
     consented SDK workers. Install this command under a supervised OS service
     for operation over days; a chat session does not launch background jobs.
+
+    With ``--contained`` each preparation runs in a child process that is killed
+    at its deadline (120 seconds), on cancel, and after a coordinator crash. It
+    refuses to start on a host that cannot prove termination of the process tree.
     """
     import signal
     import threading
@@ -733,7 +738,12 @@ def workflow_serve(
             original_handlers[sig] = signal.getsignal(sig)
             signal.signal(sig, request_stop)
     try:
-        workers = {'prepare': PreparationWorker(store)}
+        if contained:
+            from .containment import ProcessRegistry
+            from .worker_child import contained_preparation_worker
+            workers = {'prepare': contained_preparation_worker(ProcessRegistry(store), deadline_seconds=120)}
+        else:
+            workers = {'prepare': PreparationWorker(store)}
         if allow_mock:
             workers['mock'] = ScriptedWorkflowWorker()
         settings = CoordinatorSettings(
