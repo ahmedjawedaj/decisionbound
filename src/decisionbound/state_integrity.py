@@ -126,7 +126,7 @@ def inspect_database(path: str | Path, *, full: bool = False) -> StateHealth:
         schema_version=version,
         expected_schema_version=SCHEMA_VERSION,
         size_bytes=source.stat().st_size,
-        wal_bytes=source.with_name(source.name + "-wal").stat().st_size if source.with_name(source.name + "-wal").is_file() else 0,
+        wal_bytes=_wal_size(source),
         journal_mode=mode,
         required_tables_present=required,
         schema_columns_valid=columns_valid,
@@ -134,6 +134,18 @@ def inspect_database(path: str | Path, *, full: bool = False) -> StateHealth:
         foreign_keys_ok=not fk_results,
         event_count=count,
     )
+
+
+def _wal_size(source: Path) -> int:
+    """Return the size of the write-ahead log, or 0 when there is none.
+
+    SQLite deletes the -wal file when the last connection closes, so a concurrent writer can remove it at any
+    moment. Asking for the size directly avoids a check-then-stat race that raised FileNotFoundError.
+    """
+    try:
+        return source.with_name(source.name + "-wal").stat().st_size
+    except FileNotFoundError:
+        return 0
 
 
 def _destination(path: str | Path) -> Path:
