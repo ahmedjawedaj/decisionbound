@@ -215,7 +215,7 @@ jobs:
         env:
           HOST_LOG: ${{ runner.temp }}/vscode-host.log
         run: |
-          python scripts/require_executed.py log --marker "Loading development extension at" --marker "Extension host test runner exit code: 0" --marker "DBOUND_HOST_SMOKE_OK commands=5" --forbid "Extension host test runner exit code: [1-9]" --forbid "VS Code host smoke failed" "$HOST_LOG"
+          python scripts/require_executed.py log --marker "Loading development extension at" --marker "DBOUND_HOST_RUNNER_EXIT code=0" --marker "DBOUND_HOST_SMOKE_OK commands=5" --forbid "DBOUND_HOST_RUNNER_EXIT code=[^0]" --forbid "Extension host test runner exit code: [1-9]" --forbid "VS Code host smoke failed" "$HOST_LOG"
 
   vscode-package:
     # Packaging is not Marketplace publication or a signed trust assertion.

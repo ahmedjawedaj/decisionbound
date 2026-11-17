@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Make the real VS Code host gate depend on our own evidence. `apps/vscode/test/host/runner.cjs` now prints `DBOUND_HOST_RUNNER_EXIT code=<n>` and exits non-zero on a non-zero code, and both workflows require `code=0` and forbid any other value. The gate used to rely on a line VS Code prints itself, which appears only under some environments, so it could not be reproduced outside CI. Checked against a real Extension Development Host under xvfb, with a failing exit code and a missing marker both rejected.
 - Added CarryBench-Real v2 holdout: 40 candidates committed unlabelled, labels frozen from two blind AI annotators (35 agreed cases, 5 contested and excluded), then baselines and the shipped DecisionBound policy scored once with unchanged code. Results are in `benchmarks/carrybench/real_v2_holdout/HOLDOUT_RESULTS.md`. The shipped policy again equals always abstain by default, and the earlier claim that no setting scores above 0.41 no longer holds.
 
 - Rewrite the README around one 60-second offline demo (three projects, one approved decision, `apply`, `translate` and `abstain` outcomes, then a context capsule) with real output pasted from a run, an install that uses `pip install .`, and a plain status section that links CarryBench and says its labels are LLM-made with no human labels. The Pages quickstart now carries the same demo, a correct clone URL, and notes on confusing output (`approve` returns revision 2, `write_consent: false` is informational). Fix stale statements in the docs index, SDK page and `src/decisionbound/README.md`.
