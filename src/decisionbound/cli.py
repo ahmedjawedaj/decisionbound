@@ -717,8 +717,10 @@ def workflow_serve(
     for operation over days; a chat session does not launch background jobs.
 
     With ``--contained`` each preparation runs in a child process that is killed
-    at its deadline (120 seconds), on cancel, and after a coordinator crash. It
-    refuses to start on a host that cannot prove termination of the process tree.
+    at its deadline (120 seconds from spawn) and on cancel. After a coordinator
+    crash the next coordinator kills what the old one left behind. On a host
+    without strong containment every task is refused and blocked. The command
+    stops with an error when the child cannot import the installed package.
     """
     import signal
     import threading
@@ -740,7 +742,11 @@ def workflow_serve(
     try:
         if contained:
             from .containment import ProcessRegistry
-            from .worker_child import contained_preparation_worker
+            from .worker_child import child_can_import, contained_preparation_worker
+            if not child_can_import():
+                typer.echo('Contained preparation needs decisionbound installed where `python -I` can import it '
+                           '(a pip --user install is not visible in isolated mode).', err=True)
+                raise typer.Exit(2)
             workers = {'prepare': contained_preparation_worker(ProcessRegistry(store), deadline_seconds=120)}
         else:
             workers = {'prepare': PreparationWorker(store)}

@@ -22,7 +22,7 @@
 
 ## Using it
 
-Contained workers are injected through the SDK. `dbound workflow serve` still registers only the offline `PreparationWorker`.
+Contained workers are injected through the SDK. `dbound workflow serve` registers only the offline `PreparationWorker`, in a thread unless you pass `--contained` (see below).
 
 ```python
 import sys
@@ -52,7 +52,9 @@ from decisionbound.worker_child import contained_preparation_worker
 worker = contained_preparation_worker(ProcessRegistry(store), deadline_seconds=120)
 ```
 
-`dbound workflow serve --contained` does the same with a 120 second deadline. The child runs `python -I -m decisionbound.worker_child`, so the package must be installed. It refuses every kind except `prepare`, rejects unknown assignment fields and prints nothing on failure, which the host records as a crash. Its receipt is checked again by the host, which recomputes the capsule itself, so a child that reports a wrong digest is blocked.
+`dbound workflow serve --contained` does the same with a 120 second deadline, counted from spawn. The child runs `python -I -m decisionbound.worker_child`, so the package must be installed where isolated mode can see it. A `pip install --user` is not visible, and the command stops with an error if the child cannot import the package. It refuses every kind except `prepare`, rejects unknown assignment fields and prints nothing on failure, which the host records as a crash. Its receipt is checked again by the host, which recomputes the capsule itself, so a child that reports a wrong digest is blocked.
+
+The child is a separate process, so it is outside the host's in-process write queue and relies on SQLite's busy timeout (10 seconds) for the state file. A write lock held longer than that, for example by a long backup in another process, makes the preparation fail as a crash and uses up its attempt. The host also recomputes the capsule after the child returns, so a decision that changes in between blocks the stage. On a host without strong containment every task is refused and blocked.
 
 Coding repair is not moved into a child by this. A `code` task still needs an operator supplied argv, consented writes and an isolated runner.
 

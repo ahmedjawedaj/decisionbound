@@ -1505,8 +1505,10 @@ consented SDK workers. Install this command under a supervised OS service
 for operation over days; a chat session does not launch background jobs.
 
 With ``--contained`` each preparation runs in a child process that is killed
-at its deadline (120 seconds), on cancel, and after a coordinator crash. It
-refuses to start on a host that cannot prove termination of the process tree.
+at its deadline (120 seconds from spawn) and on cancel. After a coordinator
+crash the next coordinator kills what the old one left behind. On a host
+without strong containment every task is refused and blocked. The command
+stops with an error when the child cannot import the installed package.
 
 ### `workflow_reap_orphans`
 
