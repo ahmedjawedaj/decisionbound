@@ -17,7 +17,7 @@ DecisionBound is a local-first Python library and CLI for one narrow question: *
 
 It is for developers building or running coding agents who want decisions to carry authority, evidence and limits, and for researchers studying when remembered decisions should not transfer. It is not an agent, a model, a code generator or a hosted service. The default path makes no model call, needs no account or API key and no network request.
 
-> **Experimental alpha, version `0.13.0a1`.** The commands below work as shown. The transfer policy is a conservative rule set and has not been shown to beat simple baselines (see [Status](#status-and-evidence)). Nothing here is production certified or independently security reviewed. Use the source installation below; published packages are listed on [PyPI](https://pypi.org/project/decisionbound/) when available. There is no editor Marketplace release.
+> **Experimental alpha, version `0.13.0a1`.** The commands below work as shown. The transfer policy is a conservative rule set and has not been shown to beat simple baselines (see [Status](#status-and-evidence)). Nothing here is production certified or independently security reviewed. Use the source installation below. Published packages are listed on [PyPI](https://pypi.org/project/decisionbound/) when available. There is no editor Marketplace release.
 
 ## Install
 

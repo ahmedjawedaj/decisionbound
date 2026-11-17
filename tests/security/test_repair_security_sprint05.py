@@ -10,6 +10,13 @@ from decisionbound.code_models import TestOutcome
 from decisionbound.code_ports import CodingVerifier, IsolatedTestRunner
 from decisionbound.code_sandbox import DockerTestRunner
 from tests.integration.test_code_workflow import PATCH, project
+import os
+
+
+@pytest.fixture(autouse=True)
+def non_root_caller(tmp_path, monkeypatch):
+    monkeypatch.setattr(os, 'getuid', lambda: 1000, raising=False)
+
 
 
 def contract():

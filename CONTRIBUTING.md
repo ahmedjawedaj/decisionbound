@@ -50,5 +50,5 @@ Contributions must be yours to submit and compatible with Apache-2.0. Third-part
 Ahmed Jawed maintains the project. See GOVERNANCE.md, CODE_OF_CONDUCT.md and PUBLICATION_POLICY.md.
 
 Package publication follows the [release process](site_docs/package-release.md).
-Tested sprint changes should go through a pull request and required CI; private
+Tested sprint changes should go through a pull request and required CI. Private
 handoffs and drafts remain outside the public repository.

@@ -16,6 +16,12 @@ from decisionbound.code_workspace import GitWorktreeManager, WorkspaceError
 from decisionbound.identity import init_project
 from decisionbound.storage import SQLiteRepository
 
+
+@pytest.fixture(autouse=True)
+def non_root_caller(tmp_path, monkeypatch):
+    monkeypatch.setattr(os, 'getuid', lambda: 1000, raising=False)
+
+
 PATCH = '''diff --git a/app.py b/app.py
 --- a/app.py
 +++ b/app.py

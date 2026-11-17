@@ -50,13 +50,20 @@ def fetch_json(url: str, token: str | None = None) -> dict | None:
     headers = {'Accept': 'application/json'}
     if token:
         headers['Authorization'] = 'Bearer ' + token
-    try:
-        with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=30) as response:
-            return json.load(response)
-    except urllib.error.HTTPError as exc:
-        if exc.code == 404 and not token:
-            return None
-        raise
+    for attempt in range(4):
+        try:
+            with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=30) as response:
+                return json.load(response)
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404 and not token:
+                return None
+            if exc.code not in (429, 500, 502, 503, 504) or attempt == 3:
+                raise
+        except (urllib.error.URLError, TimeoutError):
+            if attempt == 3:
+                raise
+        time.sleep(2 ** attempt)
+    raise RuntimeError('unreachable')
 
 
 def require_unused_version(version: str, fetch=fetch_json) -> None:

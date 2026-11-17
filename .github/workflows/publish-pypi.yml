@@ -58,6 +58,7 @@ jobs:
           if-no-files-found: error
   publish:
     needs: build
+    if: github.ref == 'refs/heads/main' && github.repository == 'ahmedjawedaj/decisionbound'
     runs-on: ubuntu-latest
     environment:
       name: pypi

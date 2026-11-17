@@ -9,6 +9,11 @@ from decisionbound.code_models import Workspace
 from decisionbound.code_sandbox import DockerTestRunner, ScriptedTestRunner
 
 
+@pytest.fixture(autouse=True)
+def non_root_caller(tmp_path, monkeypatch):
+    monkeypatch.setattr(os, 'getuid', lambda: 1000, raising=False)
+
+
 def workspace(tmp_path: Path) -> Workspace:
     path = tmp_path/'isolated'
     path.mkdir()

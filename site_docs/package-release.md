@@ -4,7 +4,7 @@ DecisionBound is an experimental alpha. A published package is a distribution
 checkpoint, not independent security review or human validation of CarryBench.
 
 Publishing a GitHub release automatically starts the package release pipeline.
-Both stable releases and prereleases are supported; saving a draft or pushing
+Both stable releases and prereleases are supported. Saving a draft or pushing
 ordinary commits does not publish a package.
 
 1. Update `pyproject.toml`, `src/decisionbound/__init__.py` and `CITATION.cff` to
@@ -22,10 +22,10 @@ ordinary commits does not publish a package.
    final job uploads both distributions using PyPI Trusted Publishing.
 
 Each distinct version has its own concurrency group, so releasing another
-version does not cancel a queued release. A version already on PyPI is rejected;
-never overwrite a tag or reuse a version. This pipeline does not invent version
+version does not cancel a queued release. A version already on PyPI is rejected,
+and the pipeline never overwrites a tag or reuse a version. This pipeline does not invent version
 numbers or publish every source push. The GitHub release is the publication
-decision. Fix a failed release's cause and rerun its publishing workflow; use a
+decision. Fix a failed release's cause and rerun its publishing workflow. Use a
 new version if that version has already reached PyPI.
 
 The manual recovery path remains available: dispatch `publish-pypi.yml` from
@@ -59,4 +59,4 @@ and [PyPI Trusted Publishing security model](https://docs.pypi.org/trusted-publi
 Review the public file manifest and the actual distribution contents before the
 first publication. Keep article drafts, annotation working files, chat handoffs,
 private state and raw execution logs outside the source checkout. Publish only
-tested source commits; future sprints follow the same pull request and CI gates.
+tested source commits. Future sprints follow the same pull request and CI gates.

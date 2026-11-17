@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Automatically build and publish a new PyPI version when a GitHub release or prerelease is published. A tag-event dispatcher invokes the main-only publisher, which requires matching package/runtime/citation versions, rejects reused PyPI versions, and waits for exact-commit main CI before building. Drafts and ordinary pushes do not publish; no second manual upload approval is required.
+- Automatically build and publish a new PyPI version when a GitHub release or prerelease is published. A tag-event dispatcher invokes the main-only publisher, which requires matching package/runtime/citation versions, rejects reused PyPI versions, and waits for exact-commit main CI before building. Drafts and ordinary pushes do not publish, and no second manual upload approval is required.
 
 - Refuse a root caller in `DockerTestRunner` before launching Docker or Podman. Non-root POSIX callers retain their UID/GID; platforms without POSIX IDs retain the unprivileged `1000:1000` fallback. Deterministic tests cover refusal without a daemon call and both permitted identity paths. This does not certify container escape resistance.
 
