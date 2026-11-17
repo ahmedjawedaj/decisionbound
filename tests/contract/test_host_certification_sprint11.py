@@ -101,3 +101,38 @@ def test_certify_check_helper_still_fails_under_python_O():
                             capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "raised boom"
+
+
+def test_host_gate_relies_on_our_own_exit_marker_not_only_on_vs_code_log_text():
+    """The real-host gate must not depend solely on a line VS Code prints itself.
+
+    That line appears only under some environments, so the gate could not be
+    reproduced locally. The runner now writes its own exit line, and both
+    workflows require it and forbid any other exit code.
+    """
+    runner = (ROOT / "apps" / "vscode" / "test" / "host" / "runner.cjs").read_text(encoding="utf-8")
+    assert "DBOUND_HOST_RUNNER_EXIT code=${exitCode}" in runner
+    assert "process.exitCode = 1" in runner
+    for name in ("ci.yml", "platform-certification.yml"):
+        text = (ROOT / ".github" / "workflows" / name).read_text(encoding="utf-8")
+        assert '--marker "DBOUND_HOST_RUNNER_EXIT code=0"' in text, name
+        assert '--forbid "DBOUND_HOST_RUNNER_EXIT code=[^0]"' in text, name
+        assert '--marker "DBOUND_HOST_SMOKE_OK commands=5"' in text, name
+        assert '--forbid "Extension host test runner exit code: [1-9]"' in text, name
+
+
+def test_the_exit_marker_pattern_accepts_zero_and_rejects_everything_else(tmp_path):
+    spec = importlib.util.spec_from_file_location("require_executed_gate", ROOT / "scripts" / "require_executed.py")
+    assert spec and spec.loader
+    guard = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(guard)
+    forbid = ["DBOUND_HOST_RUNNER_EXIT code=[^0]"]
+    marker = ["DBOUND_HOST_RUNNER_EXIT code=0"]
+    log = tmp_path / "host.log"
+    log.write_text("DBOUND_HOST_RUNNER_EXIT code=0\n", encoding="utf-8")
+    assert guard.check_log(log, marker, forbid) == []
+    for bad in ("1", "2", "undefined", "null"):
+        log.write_text(f"DBOUND_HOST_RUNNER_EXIT code={bad}\n", encoding="utf-8")
+        assert guard.check_log(log, marker, forbid), bad
+    log.write_text("no exit line at all\n", encoding="utf-8")
+    assert guard.check_log(log, marker, forbid)
