@@ -1494,7 +1494,7 @@ Read the local background coordinator health without exposing tokens.
 ### `workflow_serve`
 
 ```python
-workflow_serve(path: Path = typer.Option(Path('.'), '--path', help='Existing initialized project'), once: bool = typer.Option(False, '--once', help='Perform one scheduling cycle and exit'), max_seconds: float | None = typer.Option(None, '--max-seconds', help='Bound service scheduling lifetime'), poll_seconds: float = typer.Option(2.0, '--poll-seconds'), max_rss_mib: int = typer.Option(512, '--max-rss-mib'), allow_mock: bool = typer.Option(False, '--allow-mock', help='Explicitly enable synthetic mock stages'), low_resource: bool = typer.Option(False, '--low-resource', help='One task at a time, conservative memory and idle polling')) -> None
+workflow_serve(path: Path = typer.Option(Path('.'), '--path', help='Existing initialized project'), once: bool = typer.Option(False, '--once', help='Perform one scheduling cycle and exit'), max_seconds: float | None = typer.Option(None, '--max-seconds', help='Bound service scheduling lifetime'), poll_seconds: float = typer.Option(2.0, '--poll-seconds'), max_rss_mib: int = typer.Option(512, '--max-rss-mib'), allow_mock: bool = typer.Option(False, '--allow-mock', help='Explicitly enable synthetic mock stages'), low_resource: bool = typer.Option(False, '--low-resource', help='One task at a time, conservative memory and idle polling'), contained: bool = typer.Option(False, '--contained', help='Run preparation in a killable child process with a deadline')) -> None
 ```
 
 Run an opt-in, restartable, single-device workflow coordinator.
@@ -1503,6 +1503,12 @@ Only offline preparation workers are enabled by default. Agent/provider
 execution, shell, Docker, and coding writes require separately injected
 consented SDK workers. Install this command under a supervised OS service
 for operation over days; a chat session does not launch background jobs.
+
+With ``--contained`` each preparation runs in a child process that is killed
+at its deadline (120 seconds from spawn) and on cancel. After a coordinator
+crash the next coordinator kills what the old one left behind. On a host
+without strong containment every task is refused and blocked. The command
+stops with an error when the child cannot import the installed package.
 
 ### `workflow_reap_orphans`
 

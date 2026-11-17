@@ -44,7 +44,7 @@ dbound workflow serve --path . --low-resource
 dbound workflow leader-status
 ```
 
-Default worker permissions are deliberately narrow: **offline context preparation only**. `--allow-mock` also enables synthetic test tasks, which never establish real software-task completion. Real Claude/Codex/LLM/code workers must be installed, explicitly authorized and injected through the SDK with independent sandbox, budget and acceptance contracts. The background runner does not enable them automatically.
+Default worker permissions are deliberately narrow: **offline context preparation only**. `--allow-mock` also enables synthetic test tasks, which never establish real software-task completion. Real Claude/Codex/LLM/code workers must be installed, explicitly authorized and injected through the SDK with independent sandbox, budget and acceptance contracts. The background runner does not enable them automatically. `--contained` runs the offline preparation in a killable child process instead of a thread, see [Worker containment](worker-containment.md).
 
 Signals request a graceful drain of in-flight work. A worker that hangs indefinitely cannot be forcibly killed by an in-process Python thread. A worker injected through the SDK as a `ContainedWorker` runs in its own process tree and can be killed: see [Worker containment](worker-containment.md). After the stop grace period (`worker_stop_grace_seconds`, default 10) a graceful stop cancels contained workers, and losing leadership cancels them at the next tick. Production coding and network workers that are not contained must still run in separately managed processes or containers with hard deadlines. `--max-seconds` restricts new scheduling but is **not a hard timeout for an already running child**.
 
