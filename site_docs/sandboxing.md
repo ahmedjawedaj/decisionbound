@@ -54,7 +54,9 @@ To run the optional real Docker check with a pre-pulled local image:
 
 ```bash
 export DBOUND_DOCKER_TEST_IMAGE=python:3.12-slim
-python -m pytest -q tests/integration/test_docker_real_optional.py
+python -m pytest -q tests/integration/test_docker_real_optional.py tests/integration/test_docker_isolation_real.py
 ```
+
+The second file probes the container from the inside: loopback-only network, read-only root, dropped capabilities, no new privileges, no host secrets or Docker socket, no disk-backed host path mounted except the workspace, CPU, pids and memory limits, and removal of a timed-out container. It runs in the `docker-code-sandbox` CI job with no skips allowed. The container runs as the calling user, so a caller that is root gets a root process inside the container. Run the sandbox as a non-root user.
 
 See [Coding agent execution](coding-agents.md) and [Verification](verification.md).
