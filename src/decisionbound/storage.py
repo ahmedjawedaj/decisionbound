@@ -8,6 +8,9 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import threading
+import time
+from collections import deque
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
@@ -28,6 +31,68 @@ SCHEMA_REQUIRED_COLUMNS = {
     "repair_sessions": frozenset({"id", "idempotency_key", "request_sha256", "project_id", "contract_sha256", "max_attempts", "status", "last_feedback", "cost_usd", "created_at"}),
     "repair_attempts": frozenset({"session_id", "number", "run_id", "status", "summary", "reserved_cost_usd"}),
 }
+
+
+class _FairLock:
+    """Reentrant lock that admits waiting threads in arrival order.
+
+    SQLite's busy handler polls with backoff and is not fair: when several
+    threads write through short connections, one of them can keep losing the
+    race and exceed the busy timeout even though the database makes steady
+    progress. Queueing threads of one process here leaves SQLite to arbitrate
+    only between processes. A holder that never releases cannot hang a waiter
+    forever: the wait ends with the same error SQLite would raise.
+    """
+
+    def __init__(self) -> None:
+        self._condition = threading.Condition(threading.Lock())
+        self._owner: int | None = None
+        self._depth = 0
+        self._queue: deque[object] = deque()
+
+    def acquire(self, timeout: float) -> None:
+        me = threading.get_ident()
+        deadline = time.monotonic() + timeout
+        with self._condition:
+            if self._owner == me:
+                self._depth += 1
+                return
+            ticket = object()
+            self._queue.append(ticket)
+            try:
+                while self._owner is not None or self._queue[0] is not ticket:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise sqlite3.OperationalError("database is locked")
+                    self._condition.wait(remaining)
+            except BaseException:
+                self._queue.remove(ticket)
+                self._condition.notify_all()
+                raise
+            self._queue.popleft()
+            self._owner = me
+            self._depth = 1
+
+    def release(self) -> None:
+        with self._condition:
+            self._depth -= 1
+            if self._depth == 0:
+                self._owner = None
+                self._condition.notify_all()
+
+
+_LOCKS: dict[str, _FairLock] = {}
+_LOCKS_GUARD = threading.Lock()
+
+
+def _fair_lock_for(path: Path) -> _FairLock:
+    """Return the one queue shared by every repository object for a database file."""
+    try:
+        key = str(path.resolve())
+    except OSError:
+        key = str(path.absolute())
+    with _LOCKS_GUARD:
+        return _LOCKS.setdefault(key, _FairLock())
 
 
 class RevisionConflict(ValueError):
@@ -70,20 +135,28 @@ class SQLiteRepository(DecisionRepository):
         temporary.path = path
         temporary._initialize(allow_legacy_upgrade=True)
 
+    #: Seconds a connection waits for another writer, in this process or another.
+    busy_timeout_seconds: float = 10.0
+
     @contextmanager
     def _connection(self) -> Iterator[sqlite3.Connection]:
-        conn = sqlite3.connect(self.path, timeout=10)
-        conn.row_factory = sqlite3.Row
+        queue = _fair_lock_for(self.path)
+        queue.acquire(self.busy_timeout_seconds)
         try:
-            conn.execute("PRAGMA busy_timeout=10000")
-            conn.execute("PRAGMA foreign_keys=ON")
-            yield conn
-            conn.commit()
-        except BaseException:
-            conn.rollback()
-            raise
+            conn = sqlite3.connect(self.path, timeout=self.busy_timeout_seconds)
+            conn.row_factory = sqlite3.Row
+            try:
+                conn.execute(f"PRAGMA busy_timeout={int(self.busy_timeout_seconds * 1000)}")
+                conn.execute("PRAGMA foreign_keys=ON")
+                yield conn
+                conn.commit()
+            except BaseException:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
         finally:
-            conn.close()
+            queue.release()
 
     def _initialize(self, *, allow_legacy_upgrade: bool = False) -> None:
         """Open the current schema without silently upgrading existing user data.
