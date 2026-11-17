@@ -15,6 +15,7 @@ Only the latest main/alpha checkpoint is actively maintained; there is no stable
 - The local HTTP control API is loopback-only and uses a stored bearer token; it rejects untrusted Host/Origin requests. Do not expose it to the internet or another tenant.
 - The MCP server uses local stdio and is bound to one verified project root. The MCP host inherits the operating-system user's read access. Authentication for remotely hosted MCP endpoints is **not implemented**.
 - Events record metadata and hashes rather than raw provider prompts, tool output, file excerpts or credentials. Returned CLI/API responses may contain source excerpts and should be handled as sensitive.
+- `DockerTestRunner` refuses a root caller before contacting Docker or Podman. It runs as the caller's POSIX UID/GID, or `1000:1000` on platforms without those IDs. Run the client as a non-root user; this check does not certify daemon isolation or prevent container escapes.
 
 ## Production blockers
 
