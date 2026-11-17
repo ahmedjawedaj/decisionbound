@@ -23,6 +23,7 @@ The v1 scorers keep only cases that have a `label`, so they will report nothing 
 | `curation_v2_holdout.json` | The hand written task, paraphrases and scope conditions per shortlist id. Original text, written for this set. |
 | `selection_log_DO_NOT_SHOW_ANNOTATORS.jsonl` | Structural stratum of each case. |
 | `selection_shortlist_DO_NOT_SHOW_ANNOTATORS.jsonl` | The 118 shortlisted candidates before curation. |
+| `human_annotation/` | Protocol, label checker, blind packet builder and agreement report for the human labelling that has not happened yet. Start with `human_annotation/PROTOCOL.md`. It adds a separate label set and never edits the frozen AI labels. |
 | `tools/shortlist_candidates.py`, `tools/assemble_cases.py` | The seeded selection and the assembly step. They import the v1 miner and change nothing in `real_v1`. |
 
 No third party text is stored. Pointers carry repository, pinned commit, path, line range, SPDX identifier, a paraphrase and the SHA-256 of the whitespace-normalised span. A scan for runs of seven or more consecutive words shared between a paraphrase and its span found none. Every repository is MIT, Apache-2.0, BSD-2-Clause or BSD-3-Clause by the miner's licence check, with no repository flagged for non-permissive licence text.
