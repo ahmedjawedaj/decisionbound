@@ -79,12 +79,15 @@ function runRunner(fake) {
     fs.writeFileSync(path.join(pkg, 'index.js'), `
 const fs = require('node:fs');
 const calls = ${JSON.stringify(calls)};
+const argsFile = ${JSON.stringify(path.join(dir, 'args.json'))};
+const record = (key, value) => { const d = fs.existsSync(argsFile) ? JSON.parse(fs.readFileSync(argsFile)) : {}; (d[key] ||= []).push(value); fs.writeFileSync(argsFile, JSON.stringify(d)); };
 const bump = key => { const d = JSON.parse(fs.readFileSync(calls)); d[key] += 1; fs.writeFileSync(calls, JSON.stringify(d)); return d[key]; };
-exports.downloadAndUnzipVSCode = async () => { const n = bump('download'); ${fake.download} };
-exports.runTests = async options => { bump('run'); if (!options.vscodeExecutablePath) throw new Error('no host path'); ${fake.run} };
+exports.downloadAndUnzipVSCode = async options => { record('download', options); const n = bump('download'); ${fake.download} };
+exports.runTests = async options => { record('run', options); bump('run'); if (!options.vscodeExecutablePath) throw new Error('no host path'); ${fake.run} };
 `);
-    const result = spawnSync(process.execPath, [path.join(dir, 'host', 'runner.cjs')], {encoding: 'utf8', timeout: 60000});
-    return {...result, calls: JSON.parse(fs.readFileSync(calls))};
+    const result = spawnSync(process.execPath, [path.join(dir, 'host', 'runner.cjs')], {encoding: 'utf8', timeout: 60000, env: {...process.env, DBOUND_HOST_RETRY_DELAY_MS: '0'}});
+    const argsFile = path.join(dir, 'args.json');
+    return {...result, calls: JSON.parse(fs.readFileSync(calls)), args: fs.existsSync(argsFile) ? JSON.parse(fs.readFileSync(argsFile)) : {}, runnerRoot: path.join(dir, 'host')};
   } finally {
     fs.rmSync(dir, {recursive: true, force: true});
   }
@@ -96,6 +99,22 @@ test('runner: a failed download is retried and then the tests run once', {timeou
   assert.deepEqual(result.calls, {download: 2, run: 1});
   assert.match(result.stdout, /DBOUND_HOST_RUNNER_EXIT code=0/);
   assert.match(result.stderr, /DBOUND_HOST_ATTEMPT 1\/3 failed: Error: lookup failed/);
+  // The download keeps the extension path so the version still follows engines.vscode, and the run gets the downloaded host.
+  const extensionPath = path.resolve(result.runnerRoot, '../..');
+  assert.deepEqual(result.args.download, [{extensionDevelopmentPath: extensionPath}, {extensionDevelopmentPath: extensionPath}]);
+  assert.equal(result.args.run.length, 1);
+  assert.equal(result.args.run[0].vscodeExecutablePath, '/fake/code');
+  assert.equal(result.args.run[0].extensionDevelopmentPath, extensionPath);
+  assert.equal(result.args.run[0].extensionTestsPath, path.join(result.runnerRoot, 'smoke.cjs'));
+});
+
+test('runner: a download that fails every time stops after three attempts and never starts the tests', {timeout: 60000}, () => {
+  const result = runRunner({download: "throw new Error('lookup failed ' + n);", run: 'return 0;'});
+  assert.equal(result.status, 1);
+  assert.deepEqual(result.calls, {download: 3, run: 0});
+  assert.doesNotMatch(result.stdout, /DBOUND_HOST_RUNNER_EXIT|DBOUND_HOST_SMOKE_OK/);
+  assert.match(result.stderr, /DBOUND_HOST_ATTEMPT 3\/3 failed: Error: lookup failed 3/);
+  assert.match(result.stderr, /VS Code host smoke failed: Error: lookup failed 3/);
 });
 
 test('runner: a failing test run is not retried and fails the run with no exit marker', {timeout: 60000}, () => {

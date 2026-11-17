@@ -11,7 +11,10 @@ const {describe, runWithRetry} = require('./retry.cjs');
   const args = ['--disable-workspace-trust', '--skip-welcome', '--skip-release-notes'];
   // Looking up and downloading the host depends on an external service, so only that step is retried.
   // runTests rejects when the extension tests fail, so it is called once and a failing test fails the run.
-  const vscodeExecutablePath = await runWithRetry(() => downloadAndUnzipVSCode(), {log: text => process.stderr.write(text)});
+  // Passing extensionDevelopmentPath keeps the version choice that runTests would make (the newest stable release the extension's engines.vscode allows).
+  // DBOUND_HOST_RETRY_DELAY_MS only exists so the tests do not wait for real seconds.
+  const delayMs = Number(process.env.DBOUND_HOST_RETRY_DELAY_MS ?? 5000);
+  const vscodeExecutablePath = await runWithRetry(() => downloadAndUnzipVSCode({extensionDevelopmentPath}), {delayMs, log: text => process.stderr.write(text)});
   const exitCode = await runTests({vscodeExecutablePath, extensionDevelopmentPath, extensionTestsPath, launchArgs:args});
   // Our own evidence line. CI used to depend on a line that VS Code itself prints, which only appears
   // under some environments, so the gate could not be checked outside CI. This one is written whenever runTests returns. If runTests throws, nothing is written and the gate fails on the missing marker.

@@ -119,7 +119,7 @@ jobs:
         shell: bash
         env:
           NODE_TEST_LOG: ${{ runner.temp }}/vscode-node-test.log
-        run: python scripts/require_executed.py node --min-tests 23 "$NODE_TEST_LOG"
+        run: python scripts/require_executed.py node --min-tests 24 "$NODE_TEST_LOG"
   docker-code-sandbox:
     # Connected CI provides Docker; local development may skip this suite.
     # This proves one real container test path and probes its isolation from the inside.
