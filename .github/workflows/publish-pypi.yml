@@ -1,4 +1,4 @@
-name: Publish verified alpha to PyPI
+name: Publish verified release to PyPI
 on:
   workflow_dispatch:
     inputs:
@@ -9,64 +9,36 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: pypi-release
+  group: pypi-${{ inputs.tag }}
   cancel-in-progress: false
 jobs:
   build:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && github.repository == 'ahmedjawedaj/decisionbound'
     runs-on: ubuntu-latest
+    timeout-minutes: 150
     permissions:
       contents: read
       actions: read
     steps:
-      - name: Validate requested tag syntax
-        env:
-          RELEASE_TAG: ${{ inputs.tag }}
-        run: |
-          python - <<'PY'
-          import os, re
-          if not re.fullmatch(r'v[0-9]+\.[0-9]+\.[0-9]+(?:a[0-9]+|b[0-9]+|rc[0-9]+)?', os.environ['RELEASE_TAG']):
-              raise SystemExit('An explicit version tag is required')
-          PY
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          ref: ${{ inputs.tag }}
+          ref: main
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.12'
-      - name: Require matching version and successful main certification
+      - name: Require a new matching version and await main certification
+        id: preflight
         env:
-          RELEASE_TAG: ${{ inputs.tag }}
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: |
-          python - <<'PY'
-          import json, os, subprocess, tomllib, urllib.request
-          from pathlib import Path
-          tag = os.environ['RELEASE_TAG']
-          version = tomllib.loads(Path('pyproject.toml').read_text())['project']['version']
-          if tag != 'v' + version:
-              raise SystemExit('Tag does not match package version')
-          sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
-          tagged = subprocess.check_output(['git', 'rev-parse', '--verify', 'refs/tags/' + tag + '^{commit}'], text=True).strip()
-          if sha != tagged:
-              raise SystemExit('Requested ref is not the version tag')
-          subprocess.run(['git', 'merge-base', '--is-ancestor', sha, 'origin/main'], check=True)
-          for workflow in ('ci.yml', 'quality-gate.yml', 'platform-certification.yml'):
-              url = f"https://api.github.com/repos/{os.environ['GH_REPO']}/actions/workflows/{workflow}/runs?branch=main&event=push&head_sha={sha}&per_page=10"
-              req = urllib.request.Request(url, headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json'})
-              with urllib.request.urlopen(req) as response:
-                  runs = json.load(response)['workflow_runs']
-              if not runs:
-                  raise SystemExit('Missing main certification: ' + workflow)
-              run = max(runs, key=lambda item: (item['run_number'], item['run_attempt']))
-              if run['head_sha'] != sha or run['status'] != 'completed' or run['conclusion'] != 'success':
-                  raise SystemExit('Main certification has not passed: ' + workflow)
-              print(workflow, run['html_url'])
-          print('Verified release commit:', sha)
-          PY
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: python scripts/verify_pypi_release.py --tag "$RELEASE_TAG"
+      - name: Check out the certified immutable source commit
+        env:
+          RELEASE_SHA: ${{ steps.preflight.outputs.sha }}
+        run: git checkout --detach "$RELEASE_SHA"
       - name: Review boundary and build distributions
         run: |
           python scripts/check_publication.py

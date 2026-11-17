@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Automatically build and publish a new PyPI version when a GitHub release or prerelease is published. A tag-event dispatcher invokes the main-only publisher, which requires matching package/runtime/citation versions, rejects reused PyPI versions, and waits for exact-commit main CI before building. Drafts and ordinary pushes do not publish; no second manual upload approval is required.
+
 - Refuse a root caller in `DockerTestRunner` before launching Docker or Podman. Non-root POSIX callers retain their UID/GID; platforms without POSIX IDs retain the unprivileged `1000:1000` fallback. Deterministic tests cover refusal without a daemon call and both permitted identity paths. This does not certify container escape resistance.
 
 - Add the tooling for human labelling of the v2 holdout (`benchmarks/carrybench/real_v2_holdout/human_annotation/`). It holds the annotator protocol, a label checker, a script that builds a blind packet (guide v1.1, the 40 unlabelled candidates, pins, and no AI label or result), and an agreement report with raw agreement and Cohen's kappa. No human has labelled anything yet. Human labels will be added as a separate set and the frozen AI labels stay unchanged.
