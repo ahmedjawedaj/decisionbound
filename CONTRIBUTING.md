@@ -45,7 +45,7 @@ Research changes need explicit hypotheses, baselines, data provenance, held-out 
 
 ## Authorship
 
-Every commit is authored by a person. The `quality-gate` job runs `scripts/check_attribution.py` on each pull request and fails when a commit has an assistant as author or committer, a `Co-Authored-By` or `Claude-Session` trailer naming an assistant, or when the title or body carries a generated-by footer. A squash merge builds its message from the title and body, so both are checked. Plain mentions of a model in prose are fine.
+Every commit is authored by a person. The `quality-gate` job runs `scripts/check_attribution.py` on each pull request and fails when a commit has an assistant as author or committer, a `Co-Authored-By` or `Claude-Session` trailer naming an assistant, or when the title or body carries a generated-by footer. A squash merge builds its message from the title and body, so both are checked. Plain mentions of a model in prose are fine, but a line shaped like a trailer or a footer fails even when it quotes one. Dependabot pull requests are checked for author and committer only. The check catches accidents and does not fold lookalike letters.
 
 ## License and governance
 
