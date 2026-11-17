@@ -448,11 +448,17 @@ def test_concurrent_supervisors_stress_no_duplicate_claims_and_global_cap(setup)
             self.peak = 0
             self.calls = 0
             self.lock = threading.Lock()
+            self.overlapped = threading.Event()
         def execute(self, assignment):
             with self.lock:
                 self.running += 1
                 self.calls += 1
                 self.peak = max(self.peak, self.running)
+                if self.running > 1:
+                    self.overlapped.set()
+            # The first task waits (bounded) until a second one is running, so
+            # overlap does not depend on how fast the disk lets supervisors claim.
+            self.overlapped.wait(10)
             time.sleep(.012)
             with self.lock:
                 self.running -= 1

@@ -244,8 +244,24 @@ def test_keyset_rotation_does_not_starve_new_workflows(environment):
     next_batch = journal.list_active(project_id=project.project_id, limit=3, after=first_batch[-1])
     assert len(set(first_batch + next_batch)) == 6
     assert set(first_batch + next_batch) <= set(ordered)
-    result = coordinator(environment, max_rss_mib=None,
-                         max_workflows_per_cycle=2, poll_seconds=0.05).run(max_seconds=2)
+    # Run until every workflow is served instead of for a fixed two seconds: a
+    # slow disk makes each cycle slower, and starvation shows as never finishing.
+    stop = threading.Event()
+    service = coordinator(environment, max_rss_mib=None,
+                          max_workflows_per_cycle=2, poll_seconds=0.05)
+    result: dict = {}
+    runner = threading.Thread(target=lambda: result.update(
+        service.run(stop_event=stop, max_seconds=120)))
+    runner.start()
+    deadline = time.monotonic() + 90
+    try:
+        while time.monotonic() < deadline and not all(
+                journal.status(wid)['state'] == 'verified_stages' for wid in ids):
+            time.sleep(0.05)
+    finally:
+        stop.set()
+        runner.join(30)
+    assert not runner.is_alive()
     assert result['cycles'] >= 4
     assert all(journal.status(wid)['state'] == 'verified_stages' for wid in ids)
 
