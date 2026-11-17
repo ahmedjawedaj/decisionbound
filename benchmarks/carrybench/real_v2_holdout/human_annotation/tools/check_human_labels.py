@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -20,6 +21,9 @@ TIERS = ("T1", "T2", "T3", "T4")
 MAX_RATIONALE = 400
 MAX_NOTES = 1500
 HEADER_KEYS = ("annotator_id", "saw_ai_labels", "background", "guide")
+CASE_KEYS = ("case_id", "label", "allowed", "confidence", "strength", "deciding_tier", "rationale",
+             "translated_rule", "invalid_reason", "read_beyond_pointers", "notes")
+_INVISIBLE = re.compile(r"[\s\u200b-\u200f\u2060\ufeff]")
 
 
 def _case_ids(path):
@@ -31,11 +35,19 @@ def _case_ids(path):
     return ids
 
 
+def read_rows(path) -> list:
+    """Read a label file. Accepts a UTF-8 byte order mark, which some Windows editors add."""
+    with open(path, encoding="utf-8-sig") as f:
+        return [json.loads(line) for line in f if line.strip()]
+
+
 def check(rows: list[dict], expected_ids: list[str]) -> list[str]:
     """Return a list of problems. An empty list means the file is well formed."""
     problems: list[str] = []
     if not rows:
         return ["file is empty"]
+    if not all(isinstance(r, dict) for r in rows):
+        return ["every line must be one JSON object, like the lines in labels_template.jsonl"]
     header, cases = rows[0], rows[1:]
     if "case_id" in header:
         problems.append("line 1 must be the header, not a case")
@@ -43,6 +55,9 @@ def check(rows: list[dict], expected_ids: list[str]) -> list[str]:
     for key in HEADER_KEYS:
         if key not in header:
             problems.append(f"header is missing '{key}'")
+    if header:
+        for key in sorted(set(header) - set(HEADER_KEYS)):
+            problems.append(f"header has an unknown field '{key}'")
     if header:
         if not isinstance(header.get("annotator_id"), str) or not header.get("annotator_id", "").strip():
             problems.append("header 'annotator_id' must be a non-empty string")
@@ -62,12 +77,16 @@ def check(rows: list[dict], expected_ids: list[str]) -> list[str]:
         if cid in seen:
             problems.append(f"{where}: appears more than once")
         seen.add(cid)
+        for key in sorted(set(row) - set(CASE_KEYS)):
+            problems.append(f"{where}: unknown field '{key}'")
         label = row.get("label")
         if label not in LABELS + SPECIAL:
             problems.append(f"{where}: label must be one of {', '.join(LABELS + SPECIAL)}")
         allowed = row.get("allowed")
         if allowed is not None and (allowed not in LABELS or allowed == label):
             problems.append(f"{where}: allowed must be null or a different one of the four labels")
+        if allowed is not None and label in SPECIAL:
+            problems.append(f"{where}: allowed must be null for {label}")
         conf = row.get("confidence")
         if isinstance(conf, bool) or not isinstance(conf, (int, float)) or not 0 <= conf <= 1:
             problems.append(f"{where}: confidence must be a number from 0 to 1")
@@ -79,7 +98,7 @@ def check(rows: list[dict], expected_ids: list[str]) -> list[str]:
         if label in SPECIAL and tier is not None:
             problems.append(f"{where}: deciding_tier must be null for {label}")
         rationale = row.get("rationale")
-        if not isinstance(rationale, str) or not rationale.strip():
+        if not isinstance(rationale, str) or not _INVISIBLE.sub("", rationale):
             problems.append(f"{where}: rationale is required")
         elif len(rationale) > MAX_RATIONALE:
             problems.append(f"{where}: rationale is longer than {MAX_RATIONALE} characters")
@@ -120,7 +139,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--cases", required=True, help="the unlabelled candidate file")
     args = ap.parse_args(argv)
     try:
-        rows = [json.loads(line) for line in open(args.labels, encoding="utf-8") if line.strip()]
+        rows = read_rows(args.labels)
     except (OSError, ValueError) as exc:
         print(f"cannot read {args.labels}: {exc}", file=sys.stderr)
         return 2

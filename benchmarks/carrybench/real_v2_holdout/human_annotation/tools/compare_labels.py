@@ -15,7 +15,10 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-HOLDOUT = Path(__file__).resolve().parent.parent.parent
+HERE = Path(__file__).resolve().parent
+HOLDOUT = HERE.parent.parent
+sys.path.insert(0, str(HERE))
+import check_human_labels as checker  # noqa: E402
 ACT = {"apply", "translate"}
 HOLD = {"abstain", "escalate"}
 
@@ -24,13 +27,18 @@ def load_cases(path: Path) -> dict[str, dict]:
     return {r["case_id"]: r for r in map(json.loads, open(path, encoding="utf-8")) if "case_id" in r}
 
 
-def load_human(path: Path) -> tuple[dict, dict[str, dict]]:
-    rows = [json.loads(line) for line in open(path, encoding="utf-8") if line.strip()]
+def load_human(path: Path, expected_ids: list[str]) -> tuple[dict, dict[str, dict]]:
+    """Load a human file after running the full checker. Refuses incomplete or malformed files."""
+    rows = checker.read_rows(path)
+    problems = checker.check(rows, expected_ids)
+    if problems:
+        raise SystemExit(f"{path} fails the label checker, so no comparison was made:\n  " + "\n  ".join(problems[:10]))
     return rows[0], {r["case_id"]: r for r in rows[1:]}
 
 
-def two_way(label: str) -> str:
-    return "act" if label in ACT else "hold" if label in HOLD else "other"
+def two_way(label: str) -> str | None:
+    """act, hold, or None for invalid and no_signal, which have no two-way meaning."""
+    return "act" if label in ACT else "hold" if label in HOLD else None
 
 
 def cohen_kappa(pairs: list[tuple[str, str]]) -> float | None:
@@ -49,10 +57,11 @@ def cohen_kappa(pairs: list[tuple[str, str]]) -> float | None:
 def summarise(pairs: list[tuple[str, str]]) -> dict:
     n = len(pairs)
     four = cohen_kappa(pairs)
-    two_pairs = [(two_way(a), two_way(b)) for a, b in pairs]
+    two_pairs = [(two_way(a), two_way(b)) for a, b in pairs if two_way(a) and two_way(b)]
     two = cohen_kappa(two_pairs)
     return {
         "n": n,
+        "n_two_way": len(two_pairs),
         "agree_four_way": sum(1 for a, b in pairs if a == b),
         "kappa_four_way": None if four is None else round(four, 3),
         "agree_two_way": sum(1 for a, b in two_pairs if a == b),
@@ -67,7 +76,11 @@ def fmt(s: dict) -> str:
     if n == 0:
         return "no cases"
     return (f"four-way {s['agree_four_way']}/{n} ({s['agree_four_way'] / n:.0%}), kappa {k(s['kappa_four_way'])}. "
-            f"Two-way {s['agree_two_way']}/{n} ({s['agree_two_way'] / n:.0%}), kappa {k(s['kappa_two_way'])}.")
+            f"Two-way {s['agree_two_way']}/{s['n_two_way']}"
+            + (f" ({s['agree_two_way'] / s['n_two_way']:.0%})" if s["n_two_way"] else "")
+            + f", kappa {k(s['kappa_two_way'])}"
+            + (f", {n - s['n_two_way']} pair(s) left out because a label was invalid or no_signal" if s["n_two_way"] != n else "")
+            + ".")
 
 
 def report(humans: list[tuple[dict, dict[str, dict]]], scored: dict[str, dict], excluded: dict[str, dict]) -> str:
@@ -84,16 +97,17 @@ def report(humans: list[tuple[dict, dict[str, dict]]], scored: dict[str, dict], 
                 continue
             pairs.append((case["label"], h["label"]))
             if case["label"] != h["label"]:
-                rows.append((cid, case["label"], h["label"], h.get("confidence"), h.get("read_beyond_pointers")))
-        out += [f"On the {len(scored)} scored cases (AI pair agreed): " + fmt(summarise(pairs)), ""]
+                rows.append((cid, case["label"], h["label"], h.get("confidence"), h.get("read_beyond_pointers"),
+                             str(h.get("rationale", "")).replace("|", "/")))
+        out += [f"On the {len(pairs)} of {len(scored)} scored cases (AI pair agreed): " + fmt(summarise(pairs)), ""]
         special = Counter(h["label"] for h in labels.values() if h["label"] in ("invalid", "no_signal"))
         if special:
-            out += ["Cases the human marked outside the four labels: " + ", ".join(f"{k} {v}" for k, v in sorted(special.items())) + ".", ""]
+            out += [f"Over all {len(labels)} cases, the human marked outside the four labels: " + ", ".join(f"{k} {v}" for k, v in sorted(special.items())) + ".", ""]
         beyond = sorted(c for c, h in labels.items() if h.get("read_beyond_pointers"))
-        out += [f"Cases where the human read beyond the pointers: {len(beyond)}" + (f" ({', '.join(beyond)})." if beyond else "."), ""]
+        out += [f"Over all {len(labels)} cases, the human read beyond the pointers on {len(beyond)}" + (f" ({', '.join(beyond)})." if beyond else "."), ""]
         if rows:
-            out += ["| case | AI label | human label | human confidence | read beyond pointers |", "|---|---|---|---|---|"]
-            out += [f"| {c} | {a} | {h} | {conf} | {b} |" for c, a, h, conf, b in rows]
+            out += ["| case | AI label | human label | human confidence | read beyond pointers | human rationale |", "|---|---|---|---|---|---|"]
+            out += [f"| {c} | {a} | {h} | {conf} | {b} | {r} |" for c, a, h, conf, b, r in rows]
             out.append("")
         else:
             out += ["No disagreements on the scored cases.", ""]
@@ -110,7 +124,7 @@ def report(humans: list[tuple[dict, dict[str, dict]]], scored: dict[str, dict], 
         ids = sorted(set(l1) & set(l2))
         pairs = [(l1[c]["label"], l2[c]["label"]) for c in ids]
         out += [f"## {h1.get('annotator_id', '?')} against {h2.get('annotator_id', '?')}", "",
-                f"On all {len(ids)} cases: " + fmt(summarise(pairs)), ""]
+                f"On the {len(ids)} cases both labelled: " + fmt(summarise(pairs)), ""]
         diffs = [(c, l1[c]["label"], l2[c]["label"]) for c in ids if l1[c]["label"] != l2[c]["label"]]
         if diffs:
             out += ["| case | first | second |", "|---|---|---|"] + [f"| {c} | {a} | {b} |" for c, a, b in diffs] + [""]
@@ -123,11 +137,13 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--human", action="append", required=True, help="a checked human label file, once or twice")
     ap.add_argument("--scored", default=str(HOLDOUT / "cases_v2_holdout_v1.jsonl"))
+    ap.add_argument("--cases", default=str(HOLDOUT / "cases_v2_holdout_candidates.jsonl"), help="the unlabelled candidate file")
     ap.add_argument("--excluded", default=str(HOLDOUT / "excluded_v2_holdout.jsonl"))
     args = ap.parse_args(argv)
     if len(args.human) > 2:
         ap.error("give one or two human files")
-    humans = [load_human(Path(p)) for p in args.human]
+    ids = checker._case_ids(args.cases)
+    humans = [load_human(Path(p), ids) for p in args.human]
     print(report(humans, load_cases(Path(args.scored)), load_cases(Path(args.excluded))))
     return 0
 
