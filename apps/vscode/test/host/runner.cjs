@@ -10,7 +10,7 @@ const {runTests} = require('@vscode/test-electron');
   const args = ['--disable-workspace-trust', '--skip-welcome', '--skip-release-notes'];
   const exitCode = await runTests({extensionDevelopmentPath, extensionTestsPath, launchArgs:args});
   // Our own evidence line. CI used to depend on a line that VS Code itself prints, which only appears
-  // under some environments, so the gate could not be checked outside CI. This one is always written.
+  // under some environments, so the gate could not be checked outside CI. This one is written whenever runTests returns. If runTests throws, nothing is written and the gate fails on the missing marker.
   process.stdout.write(`DBOUND_HOST_RUNNER_EXIT code=${exitCode}\n`);
   if (exitCode !== 0) process.exitCode = 1;
 })().catch(error=>{process.stderr.write('VS Code host smoke failed: '+error.message+'\n');process.exitCode=1;});
