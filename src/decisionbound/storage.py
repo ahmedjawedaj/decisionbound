@@ -143,7 +143,23 @@ class SQLiteRepository(DecisionRepository):
     queue_patience: float = 3.0
 
     @contextmanager
-    def _connection(self) -> Iterator[sqlite3.Connection]:
+    def _connection(self, *, read_only: bool = False) -> Iterator[sqlite3.Connection]:
+        """Open a short-lived connection.
+
+        Writers queue in arrival order inside this process. A caller that only
+        reads passes ``read_only=True`` and skips the queue, because under WAL a
+        reader does not wait for a writer and must not start to.
+        """
+        if read_only:
+            conn = sqlite3.connect(self.path, timeout=self.busy_timeout_seconds)
+            conn.row_factory = sqlite3.Row
+            try:
+                conn.execute(f"PRAGMA busy_timeout={int(self.busy_timeout_seconds * 1000)}")
+                conn.execute("PRAGMA foreign_keys=ON")
+                yield conn
+            finally:
+                conn.close()
+            return
         queue = _fair_lock_for(self.path)
         queue.acquire(self.busy_timeout_seconds * self.queue_patience)
         try:
@@ -257,7 +273,7 @@ class SQLiteRepository(DecisionRepository):
 
     def get_project(self, project_id: str) -> Project | None:
         """Retrieve a project without trusting a local manifest as authorization."""
-        with self._connection() as db:
+        with self._connection(read_only=True) as db:
             row = db.execute("SELECT payload FROM projects WHERE id=?", (project_id,)).fetchone()
         if row is None:
             return None
@@ -274,13 +290,13 @@ class SQLiteRepository(DecisionRepository):
 
     def get_decision(self, decision_id: str) -> Decision | None:
         """Load a decision from its canonical JSON representation."""
-        with self._connection() as db:
+        with self._connection(read_only=True) as db:
             row = db.execute("SELECT payload FROM decisions WHERE id=?", (decision_id,)).fetchone()
         return Decision.from_dict(json.loads(row["payload"])) if row else None
 
     def list_decisions(self, project_id: str | None = None) -> list[Decision]:
         """List decisions deterministically; optional source-project filter."""
-        with self._connection() as db:
+        with self._connection(read_only=True) as db:
             if project_id is None:
                 rows = db.execute("SELECT payload FROM decisions ORDER BY id").fetchall()
             else:
@@ -341,7 +357,7 @@ class SQLiteRepository(DecisionRepository):
 
     def get_setting(self, key: str, default: str | None = None) -> str | None:
         """Get a user-scoped setting, e.g. the active profile name."""
-        with self._connection() as db:
+        with self._connection(read_only=True) as db:
             row = db.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
         return row["value"] if row else default
 
@@ -352,13 +368,13 @@ class SQLiteRepository(DecisionRepository):
 
     def list_profiles(self) -> list[dict]:
         """Return custom profiles, excluding secret values (never persisted)."""
-        with self._connection() as db:
+        with self._connection(read_only=True) as db:
             rows = db.execute("SELECT payload FROM profiles ORDER BY name").fetchall()
         return [json.loads(row["payload"]) for row in rows]
 
     def get_profile(self, name: str) -> dict | None:
         """Retrieve a custom profile's public configuration."""
-        with self._connection() as db:
+        with self._connection(read_only=True) as db:
             row = db.execute("SELECT payload FROM profiles WHERE name=?", (name,)).fetchone()
         return json.loads(row["payload"]) if row else None
 
@@ -393,6 +409,6 @@ class SQLiteRepository(DecisionRepository):
 
     def events(self, run_id: str) -> list[dict]:
         """Read events in insertion order for deterministic replay."""
-        with self._connection() as db:
+        with self._connection(read_only=True) as db:
             rows = db.execute("SELECT id,event,payload,created_at FROM run_events WHERE run_id=? ORDER BY id", (run_id,)).fetchall()
         return [{"id": r["id"], "event": r["event"], "payload": json.loads(r["payload"]), "created_at": r["created_at"]} for r in rows]

@@ -71,7 +71,7 @@ def test_a_waiter_that_times_out_leaves_the_queue_and_does_not_block_later_waite
 
     def impatient() -> None:
         try:
-            lock.acquire(0.05)
+            lock.acquire(0.5)
         except sqlite3.OperationalError as error:
             failure.append(error)
 
@@ -85,6 +85,7 @@ def test_a_waiter_that_times_out_leaves_the_queue_and_does_not_block_later_waite
     _wait_until(lambda: len(lock._queue) == 1)
     second = threading.Thread(target=patient)
     second.start()
+    _wait_until(lambda: len(lock._queue) == 2)
     first.join(5)
     assert failure and "database is locked" in str(failure[0])
     assert len(lock._queue) == 1
@@ -121,8 +122,8 @@ def test_slow_commits_do_not_starve_any_writer(tmp_path):
 
     class SlowCommit(SQLiteRepository):
         @contextmanager
-        def _connection(self):
-            with super()._connection() as db:
+        def _connection(self, **options):
+            with super()._connection(**options) as db:
                 yield db
                 # Time only the commit phase. Waiting for SQLite's own lock
                 # happens earlier, in the caller's INSERT, and must not count.
@@ -176,3 +177,19 @@ def test_a_stuck_holder_ends_a_waiters_wait_with_the_sqlite_error(tmp_path):
     finally:
         release.set()
         thread.join(5)
+
+
+def test_reads_do_not_wait_behind_a_writer_that_holds_the_queue(tmp_path):
+    repo = SQLiteRepository(tmp_path / "state.db")
+    repo.set_setting("k", "v")
+    queue = _fair_lock_for(repo.path)
+    queue.acquire(1)
+    answers: list[object] = []
+    reader = threading.Thread(target=lambda: answers.append(repo.get_setting("k")))
+    try:
+        reader.start()
+        reader.join(5)
+        assert answers == ["v"], "a read must return while a writer holds the per-file queue"
+    finally:
+        queue.release()
+        reader.join(5)
