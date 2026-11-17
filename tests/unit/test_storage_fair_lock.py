@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import sqlite3
-import statistics
 import threading
 import time
 from contextlib import contextmanager
@@ -103,38 +102,44 @@ def test_one_queue_is_shared_by_every_repository_object_for_a_file(tmp_path):
     assert _fair_lock_for(first.path) is not _fair_lock_for(other.path)
 
 
-def test_slow_commits_do_not_starve_a_writer_past_the_busy_timeout(tmp_path):
+def test_slow_commits_do_not_starve_any_writer(tmp_path):
     """Regression for a Windows CI failure: 'database is locked' under slow fsync.
 
-    Four threads write through short connections while each commit is slow and
-    the busy timeout is far shorter than the whole workload. Without the queue
-    SQLite's unfair busy handler lets one thread lose the race for longer than
-    the timeout, which raised OperationalError even though work was progressing.
+    Four threads write through short connections while every commit is slow.
+    Without the queue, SQLite's unfair busy handler lets one thread lose the
+    race again and again, which raised OperationalError once the wait passed
+    the busy timeout even though the database was making steady progress.
+
+    The test asserts the property directly instead of racing a timeout, so a
+    slow or noisy disk cannot make it fail by itself. In arrival order, a
+    write waits for at most the other three writers' holds and then runs its
+    own, so no call may take longer than four times the longest commit phase
+    measured in the same run, plus a fixed allowance for the INSERT, connection
+    setup and thread wake-up.
     """
+    holds: list[float] = []
+
     class SlowCommit(SQLiteRepository):
         @contextmanager
         def _connection(self):
             with super()._connection() as db:
                 yield db
+                # Time only the commit phase. Waiting for SQLite's own lock
+                # happens earlier, in the caller's INSERT, and must not count.
+                began = time.perf_counter()
                 time.sleep(0.015)
+            holds.append(time.perf_counter() - began)
 
     store = SlowCommit(tmp_path / "state.sqlite3")
-    # Scale the timeout to this machine's real commit latency. A fixed value is
-    # too tight on a slow Windows disk, where one commit can take hundreds of
-    # milliseconds and a queued writer legitimately waits for several of them.
-    # Twelve commits is still far shorter than the whole workload of 160.
-    samples = []
-    for _ in range(5):
-        began = time.perf_counter()
-        store.record_event("calibrate", "calibrate", {})
-        samples.append(time.perf_counter() - began)
-    store.busy_timeout_seconds = max(0.25, 12 * statistics.median(samples))
     errors: list[BaseException] = []
+    latencies: list[float] = []
 
     def writer(worker: int) -> None:
         try:
             for sequence in range(40):
+                began = time.perf_counter()
                 store.record_event(f"worker-{worker}", "stress", {"sequence": sequence})
+                latencies.append(time.perf_counter() - began)
         except BaseException as error:  # noqa: BLE001 - report every failure kind
             errors.append(error)
 
@@ -142,11 +147,13 @@ def test_slow_commits_do_not_starve_a_writer_past_the_busy_timeout(tmp_path):
     for thread in threads:
         thread.start()
     for thread in threads:
-        thread.join(60)
+        thread.join(120)
     assert not errors, errors
     for worker in range(4):
         events = store.events(f"worker-{worker}")
         assert [e["payload"]["sequence"] for e in events] == list(range(40))
+    bound = 4 * max(holds) + 0.4
+    assert max(latencies) <= bound, (max(latencies), bound)
 
 
 def test_a_stuck_holder_ends_a_waiters_wait_with_the_sqlite_error(tmp_path):
