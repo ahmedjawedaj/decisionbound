@@ -1,0 +1,397 @@
+{
+ "s001": {
+  "evidence": {
+   "config_fact:packageManager_field": "packageManager field names pnpm"
+  },
+  "scope_conditions": [
+   "JS/TS project",
+   "pnpm is the package manager"
+  ],
+  "source_paraphrase": "Always use pnpm for commands and do not use npm.",
+  "task": "Add a dev dependency to one workspace package and run its tests."
+ },
+ "s002": {
+  "evidence": {
+   "config_fact:dependency_declared": "Oxfmt declared as a dependency"
+  },
+  "scope_conditions": [
+   "JS/TS project",
+   "Oxfmt installed"
+  ],
+  "source_paraphrase": "Code style is formatted with Oxfmt and a pre-commit hook enforces it.",
+  "task": "Format a changed TypeScript file and prepare it for commit."
+ },
+ "s007": {
+  "evidence": {
+   "config_fact:pyproject_tool_table": "Black configured in pyproject"
+  },
+  "scope_conditions": [
+   "Python project",
+   "Black is the formatter"
+  ],
+  "source_paraphrase": "Python files in a pull request must be formatted with Black.",
+  "task": "Edit one Python module and prepare the change for a pull request."
+ },
+ "s011": {
+  "evidence": {
+   "config_fact:packageManager_field": "packageManager field names pnpm"
+  },
+  "scope_conditions": [
+   "JS/TS project",
+   "pnpm lockfile or packageManager field"
+  ],
+  "source_paraphrase": "The repository uses pnpm, never npm.",
+  "task": "Add a dependency to the root package and run the build."
+ },
+ "s014": {
+  "evidence": {
+   "config_fact:dependency_declared": "Jest declared as a dependency"
+  },
+  "scope_conditions": [
+   "JS/TS project",
+   "Jest is the configured runner"
+  ],
+  "source_paraphrase": "Unit tests use Jest and a pre-commit hook blocks commits that break tests.",
+  "task": "Add a unit test for a utility function in the app."
+ },
+ "s016": {
+  "evidence": {
+   "config_fact:config_file_present": "Vitest config file at the root"
+  },
+  "scope_conditions": [
+   "JS/TS project",
+   "Jest is the configured runner"
+  ],
+  "source_paraphrase": "Jest is the unit test framework and new features need tests.",
+  "task": "Add a unit test for a utility in one TypeScript package."
+ },
+ "s020": {
+  "evidence": {
+   "config_fact:ruff_pydocstyle_convention": "Ruff pydocstyle convention set to Google"
+  },
+  "scope_conditions": [
+   "Python project",
+   "no docstring convention enforced elsewhere"
+  ],
+  "source_paraphrase": "Docstrings use the Sphinx style with param fields.",
+  "task": "Add a documented helper function to one Python module."
+ },
+ "s022": {
+  "evidence": {
+   "config_fact:pyproject_tool_table": "Poetry configured in pyproject",
+   "text": "Test command shown with poetry run pytest"
+  },
+  "scope_conditions": [
+   "Python project",
+   "uv available"
+  ],
+  "source_paraphrase": "Run Python through uv and avoid the bare system interpreter.",
+  "task": "Run a Python script and a test for one package."
+ },
+ "s025": {
+  "evidence": {
+   "config_fact:dependency_declared": "Mocha declared as a dependency"
+  },
+  "scope_conditions": [
+   "JS/TS project",
+   "Vitest is the configured runner"
+  ],
+  "source_paraphrase": "All unit tests use Vitest and the Karma or Jasmine commands are not used.",
+  "task": "Add a unit test for a component in one package."
+ },
+ "s027": {
+  "evidence": {
+   "config_fact:config_file_present": "Pylint configuration file at the root"
+  },
+  "scope_conditions": [
+   "Python project",
+   "Ruff configured"
+  ],
+  "source_paraphrase": "Ruff is used for linting and formatting before every commit.",
+  "task": "Edit one Python module and lint it before committing."
+ },
+ "s030": {
+  "evidence": {
+   "text": "Tests use Vitest and Node only runtime"
+  },
+  "scope_conditions": [
+   "TypeScript tests",
+   "Jest is the configured runner"
+  ],
+  "source_paraphrase": "Unit tests use Jest through the Backstage CLI.",
+  "task": "Add a unit test for a utility in one TypeScript package."
+ },
+ "s032": {
+  "evidence": {
+   "text": "Project uses the unittest framework with test modules per directory"
+  },
+  "scope_conditions": [
+   "Python project",
+   "pytest is the configured runner"
+  ],
+  "source_paraphrase": "The project uses pytest as its test framework.",
+  "task": "Add a unit test for a new Python function."
+ },
+ "s035": {
+  "evidence": {
+   "text": "Flake8 is named as the lint rule set with one rule ignored"
+  },
+  "scope_conditions": [
+   "Python project",
+   "Ruff configured"
+  ],
+  "source_paraphrase": "Ruff is used for linting and formatting through make targets.",
+  "task": "Edit one Python module and prepare it for commit."
+ },
+ "s042": {
+  "evidence": {
+   "config_fact:pyproject_tool_table": "Hatch configured in pyproject",
+   "text": "Setup instructions use pip install of the package in editable mode"
+  },
+  "scope_conditions": [
+   "Python project",
+   "uv available"
+  ],
+  "source_paraphrase": "Environment setup and runs should go through uv sync and uv run rather than improvised setups.",
+  "task": "Set up a development environment and run the tests for one package."
+ },
+ "s044": {
+  "evidence": {
+   "config_fact:config_file_present": "Biome configuration file at the root"
+  },
+  "scope_conditions": [
+   "JS/TS project",
+   "oxlint configured"
+  ],
+  "source_paraphrase": "Linting uses oxlint.",
+  "task": "Add a lint fix to one TypeScript module."
+ },
+ "s046": {
+  "evidence": {
+   "text": "Conventional Commits also named, with advice for squash merges"
+  },
+  "scope_conditions": [
+   "commit message style",
+   "no commit-lint workflow"
+  ],
+  "source_paraphrase": "Commit messages follow Conventional Commits.",
+  "task": "Open a pull request for a small fix."
+ },
+ "s047": {
+  "evidence": {
+   "config_fact:fragment_directory_present": "Fragment directory present at the root (towncrier style)"
+  },
+  "scope_conditions": [
+   "Changesets configured"
+  ],
+  "source_paraphrase": "Releases and versions are managed with Changesets and contributors run its command before a pull request.",
+  "task": "Open a pull request for a small fix in one package."
+ },
+ "s048": {
+  "evidence": {
+   "config_fact:dependency_declared": "Changesets CLI declared as a dependency",
+   "text": "Relevant changes must be documented with changesets"
+  },
+  "scope_conditions": [
+   "commit-lint config present"
+  ],
+  "source_paraphrase": "Releases use semantic release and commit messages must satisfy the commit-lint rules.",
+  "task": "Open a pull request for a small fix in one package."
+ },
+ "s050": {
+  "evidence": {
+   "text": "PR title uses conventional commit grammar with a length limit checked by CI"
+  },
+  "scope_conditions": [
+   "PR title validated by a bot"
+  ],
+  "source_paraphrase": "Pull request titles use conventional commit prefixes and fix is reserved for product bugs.",
+  "task": "Open a pull request for a small fix."
+ },
+ "s052": {
+  "evidence": {
+   "text": "Do not add dependencies, with a stated reason about install cost"
+  },
+  "scope_conditions": [],
+  "source_paraphrase": "Before adding a dependency, check for existing helpers and pinned versions to reuse.",
+  "task": "Add a small third-party library as a new dependency of one package."
+ },
+ "s053": {
+  "evidence": {
+   "text": "Never use force push or force-with-lease"
+  },
+  "scope_conditions": [],
+  "source_paraphrase": "Branches of open pull requests are not force-pushed.",
+  "task": "Update a branch after review comments on an open pull request."
+ },
+ "s060": {
+  "evidence": {
+   "text": "Existing helpers or standard tools are preferred over a new dependency when they meet the need"
+  },
+  "scope_conditions": [],
+  "source_paraphrase": "New dependencies are avoided unless they are truly necessary.",
+  "task": "Add a small third-party library as a new dependency of one package."
+ },
+ "s061": {
+  "evidence": {
+   "text": "Examples should not be filled with console log messages"
+  },
+  "scope_conditions": [
+   "TypeScript or JavaScript project"
+  ],
+  "source_paraphrase": "Never call the console log or debug functions directly.",
+  "task": "Add a new example script with some debug output."
+ },
+ "s062": {
+  "evidence": {
+   "text": "Tests use a real in-memory database and no mocking"
+  },
+  "scope_conditions": [
+   "Python test suite"
+  ],
+  "source_paraphrase": "Mock provider traffic in tests so they do not depend on live services.",
+  "task": "Write a unit test for a module that talks to an external service."
+ },
+ "s063": {
+  "evidence": {
+   "text": "Asking first is required before adding any dependency"
+  },
+  "scope_conditions": [],
+  "source_paraphrase": "Adding a dependency needs the user to approve it first.",
+  "task": "Add a small third-party library as a new dependency of one package."
+ },
+ "s075": {
+  "evidence": {
+   "text": "Code should be typed, using Any and cast only when absolutely required"
+  },
+  "scope_conditions": [
+   "strict TypeScript"
+  ],
+  "source_paraphrase": "Use strict typing and avoid any, unknown and object types.",
+  "task": "Add a typed helper that parses untrusted JSON."
+ },
+ "s076": {
+  "evidence": {
+   "text": "Declare the AI assistance level in the PR template honestly"
+  },
+  "scope_conditions": [
+   "PR template or policy covers AI use"
+  ],
+  "source_paraphrase": "Contributions made with AI help are governed by the AI usage policy, which asks for disclosure, human review and validation.",
+  "task": "Prepare a pull request description for an agent-authored change."
+ },
+ "s082": {
+  "evidence": {
+   "text": "AI disclosure is made as a final commit message trailer naming the model"
+  },
+  "scope_conditions": [
+   "pull request workflow"
+  ],
+  "source_paraphrase": "Maintainers must be told in the pull request about any use of AI help.",
+  "task": "Open a pull request for a small fix written with AI help."
+ },
+ "s084": {
+  "evidence": {},
+  "scope_conditions": [
+   "actor is an agent"
+  ],
+  "source_paraphrase": "Leave out any mention of AI tools or tool credit in pull request metadata and replies unless the user asks for it.",
+  "task": "Open a pull request for a small fix prepared by an agent."
+ },
+ "s089": {
+  "evidence": {
+   "text": "Terms are the project licence itself, with neither a CLA nor a DCO requirement at present"
+  },
+  "scope_conditions": [
+   "DCO bot or policy in force"
+  ],
+  "source_paraphrase": "Every commit needs a DCO sign-off, made with the git sign-off flag.",
+  "task": "Prepare a one-line fix and push the branch for a pull request."
+ },
+ "s092": {
+  "evidence": {
+   "text": "Maintainers may ask for clarification when a commit lacks sign-off, with no retroactive requirement"
+  },
+  "scope_conditions": [
+   "DCO check in CI"
+  ],
+  "source_paraphrase": "A DCO sign-off is required on all commits.",
+  "task": "Prepare a one-line fix and push the branch for a pull request."
+ },
+ "s093": {
+  "evidence": {},
+  "scope_conditions": [
+   "DCO policy in force"
+  ],
+  "source_paraphrase": "Confirm that every commit carries a DCO sign-off trailer.",
+  "task": "Prepare a one-line fix and push the branch for a pull request."
+ },
+ "s095": {
+  "evidence": {
+   "text": "Follow the CLA assistant link posted on the pull request and accept it"
+  },
+  "scope_conditions": [
+   "CLA bot present"
+  ],
+  "source_paraphrase": "Code contributors must have a contributor license agreement on file.",
+  "task": "Open a pull request with a small documentation fix."
+ },
+ "s097": {
+  "evidence": {
+   "text": "Undisclosed vulnerabilities are not raised in public pull requests, maintainers are told privately first"
+  },
+  "scope_conditions": [],
+  "source_paraphrase": "Critical security issues are first raised privately in a chat channel before deciding how to disclose.",
+  "task": "While adding a test you find what looks like an exploitable flaw and need to record it."
+ },
+ "s098": {
+  "evidence": {
+   "text": "Undisclosed vulnerabilities do not go in public issues and follow the private process in the security file"
+  },
+  "scope_conditions": [],
+  "source_paraphrase": "Never report security problems in public and send sensitive bugs by email.",
+  "task": "While adding a test you find what looks like an exploitable flaw and need to record it."
+ },
+ "s100": {
+  "evidence": {
+   "text": "Do not open a public issue for vulnerabilities, see the security file for private reporting"
+  },
+  "scope_conditions": [
+   "actor is an agent"
+  ],
+  "source_paraphrase": "If an agent spots a possible vulnerability it stops, makes no commit, push or public issue draft, and reports to the user.",
+  "task": "The user asks you to fix a bug and you notice a likely vulnerability on the way."
+ },
+ "s102": {
+  "evidence": {},
+  "scope_conditions": [],
+  "source_paraphrase": "Public GitHub issues are not an acceptable channel for reporting security vulnerabilities.",
+  "task": "While adding a test you find what looks like an exploitable flaw and need to record it."
+ },
+ "s105": {
+  "evidence": {},
+  "scope_conditions": [
+   "actor is an agent"
+  ],
+  "source_paraphrase": "An agent may only read from git and must not run mutating git commands unless told to.",
+  "task": "The user asks you to fix a small bug and get the change ready for review."
+ },
+ "s111": {
+  "evidence": {
+   "text": "Pull requests tagged ship or show are auto-approved and the author merges once CI passes, untagged ones wait for human approval"
+  },
+  "scope_conditions": [
+   "actor is an agent"
+  ],
+  "source_paraphrase": "Never merge external pull requests unilaterally, the user decides first.",
+  "task": "A contributor opens an external pull request with a small fix and the user asks you to deal with it."
+ },
+ "s117": {
+  "evidence": {},
+  "scope_conditions": [
+   "project licence is Apache-2.0"
+  ],
+  "source_paraphrase": "New files require an SPDX license identifier header for Apache-2.0.",
+  "task": "Add a new source file to one package."
+ }
+}

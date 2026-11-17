@@ -1,0 +1,681 @@
+{
+ "bootstrap": {
+  "cluster": "source repository",
+  "reps": 2000,
+  "seed": 17
+ },
+ "cases": 35,
+ "dataset": "carrybench_real_v1",
+ "label_distribution": {
+  "abstain": 13,
+  "apply": 12,
+  "escalate": 6,
+  "translate": 4
+ },
+ "label_status": "two blind LLM annotators, one model family, no human labels",
+ "per_case": [
+  {
+   "always_apply": "apply",
+   "case_id": "cbh-001",
+   "config_lookup": "abstain",
+   "family_prior_loo": "apply",
+   "keyword_jaccard>=0.15": "abstain",
+   "label": "abstain",
+   "majority(abstain)": "abstain",
+   "precedence_authority": "abstain",
+   "precedence_rule": "abstain",
+   "shared_tool": "abstain"
+  },
+  {
+   "always_apply": "apply",
+   "case_id": "cbh-002",
+   "config_lookup": "abstain",
+   "family_prior_loo": "abstain",
+   "keyword_jaccard>=0.15": "abstain",
+   "label": "abstain",
+   "majority(abstain)": "abstain",
+   "precedence_authority": "abstain",
+   "precedence_rule": "abstain",
+   "shared_tool": "abstain"
+  },
+  {
+   "always_apply": "apply",
+   "case_id": "cbh-003",
+   "config_lookup": "abstain",
+   "family_prior_loo": "abstain",
+   "keyword_jaccard>=0.15": "abstain",
+   "label": "translate",
+   "majority(abstain)": "abstain",
+   "precedence_authority": "escalate",
+   "precedence_rule": "abstain",
+   "shared_tool": "abstain"
+  },
+  {
+   "always_apply": "apply",
+   "case_id": "cbh-004",
+   "config_lookup": "abstain",
+   "family_prior_loo": "translate",
+   "keyword_jaccard>=0.15": "abstain",
+   "label": "escalate",
+   "majority(abstain)": "abstain",
+   "precedence_authority": "escalate",
+   "precedence_rule": "abstain",
+   "shared_tool": "abstain"
+  },
+  {
+   "always_apply": "apply",
+   "case_id": "cbh-005",
+   "config_lookup": "abstain",
+   "family_prior_loo": "escalate",
+   "keyword_jaccard>=0.15": "abstain",
+   "label": "escalate",
+   "majority(abstain)": "abstain",
+   "precedence_authority": "escalate",
+   "precedence_rule": "abstain",
+   "shared_tool": "abstain"
+  },
+  {
+   "always_apply": "apply",
+   "case_id": "cbh-006",
+   "config_lookup": "abstain",
+   "family_prior_loo": "abstain",
+   "keyword_jaccard>=0.15": "abstain",
+   "label": "abstain",
+   "majority(abstain)": "abstain",
+   "precedence_authority": "abstain",
+   "precedence_rule": "abstain",
+   "shared_tool": "abstain"
+  },
+  {
+   "always_apply": "apply",
+   "case_id": "cbh-007",
+   "config_lookup": "abstain",
+   "family_prior_loo": "abstain",
+   "keyword_jaccard>=0.15": "abstain",
+   "label": "apply",
+   "majority(abstain)": "abstain",
+   "precedence_authority": "apply",
+   "precedence_rule": "apply",
+   "shared_tool": "apply"
+  },
+  {
+   "always_apply": "apply",
+   "case_id": "cbh-008",
+   "config_lookup": "abstain",
+   "family_prior_loo": "escalate",
+   "keyword_jaccard>=0.15": "abstain",
+   "label": "translate",
+   "majority(abstain)": "abstain",
+   "precedence_authority": "escalate",
+   "precedence_rule": "apply",
+   "shared_tool": "abstain"
+  },
+  {
+   "always_apply": "apply",
+   "case_id": "cbh-009",
+   "config_lookup": "abstain",
+   "family_prior_loo": "apply",
+   "keyword_jaccard>=0.15": "abstain",
+   "label": "apply",
+   "majority(abstain)": "abstain",
+   "precedence_authority": "escalate",
+   "precedence_rule": "abstain",
+   "shared_tool": "abstain"
+  },
+  {
+   "always_apply": "apply",
+   "case_id": "cbh-010",
+   "config_lookup": "apply",
+   "family_prior_loo": "abstain",
+   "keyword_jaccard>=0.15": "abstain",
+   "label": "apply",
+   "majority(abstain)": "abstain",
+   "precedence_authority": "apply",
+   "precedence_rule": "apply",
+   "shared_tool": "apply"
+  },
+  {
+   "always_apply": "apply",
+   "case_id": "cbh-011",
+   "config_lookup": "abstain",
+   "family_prior_loo": "apply",
+   "keyword_jaccard>=0.15": "abstain",
+   "label": "translate",
+   "majority(abstain)": "abstain",
+   "precedence_authority": "escalate",
+   "precedence_rule": "abstain",
+   "shared_tool": "abstain"
+  },
+  {
+   "always_apply": "apply",
+   "case_id": "cbh-012",
+   "config_lookup": "abstain",
+   "family_prior_loo": "abstain",
+   "keyword_jaccard>=0.15": "abstain",
+   "label": "apply",
+   "majority(abstain)": "abstain",
+   "precedence_authority": "apply",
+   "precedence_rule": "apply",
+   "shared_tool": "apply"
+  },
+  {
+   "always_apply": "apply",
+   "case_id": "cbh-013",
+   "config_lookup": "abstain",
+   "family_prior_loo": "abstain",
+   "keyword_jaccard>=0.15": "abstain",
+   "label": "abstain",
+   "majority(abstain)": "abstain",
+   "precedence_authority": "abstain",
+   "precedence_rule": "abstain",
+   "shared_tool": "abstain"
+  },
+  {
+   "always_apply": "apply",
+   "case_id": "cbh-014",
+   "config_lookup": "abstain",
+   "family_prior_loo": "escalate",
+   "keyword_jaccard>=0.15": "abstain",
+   "label": "escalate",
+   "majority(abstain)": "abstain",
+   "precedence_authority": "escalate",
+   "precedence_rule": "abstain",
+   "shared_tool": "abstain"
+  },
+  {
+   "always_apply": "apply",
+   "case_id": "cbh-015",
+   "config_lookup": "abstain",
+   "family_prior_loo": "abstain",
+   "keyword_jaccard>=0.15": "abstain",
+   "label": "abstain",
+   "majority(abstain)": "abstain",
+   "precedence_authority": "abstain",
+   "precedence_rule": "abstain",
+   "shared_tool": "abstain"
+  },
+  {
+   "always_apply": "apply",
+   "case_id": "cbh-016",
+   "config_lookup": "abstain",
+   "family_prior_loo": "apply",
+   "keyword_jaccard>=0.15": "abstain",
+   "label": "apply",
+   "majority(abstain)": "abstain",
+   "precedence_authority": "apply",
+   "precedence_rule": "apply",
+   "shared_tool": "apply"
+  },
+  {
+   "always_apply": "apply",
+   "case_id": "cbh-018",
+   "config_lookup": "abstain",
+   "family_prior_loo": "abstain",
+   "keyword_jaccard>=0.15": "abstain",
+   "label": "abstain",
+   "majority(abstain)": "abstain",
+   "precedence_authority": "abstain",
+   "precedence_rule": "abstain",
+   "shared_tool": "abstain"
+  },
+  {
+   "always_apply": "apply",
+   "case_id": "cbh-019",
+   "config_lookup": "abstain",
+   "family_prior_loo": "escalate",
+   "keyword_jaccard>=0.15": "abstain",
+   "label": "translate",
+   "majority(abstain)": "abstain",
+   "precedence_authority": "escalate",
+   "precedence_rule": "abstain",
+   "shared_tool": "abstain"
+  },
+  {
+   "always_apply": "apply",
+   "case_id": "cbh-020",
+   "config_lookup": "abstain",
+   "family_prior_loo": "apply",
+   "keyword_jaccard>=0.15": "abstain",
+   "label": "apply",
+   "majority(abstain)": "abstain",
+   "precedence_authority": "escalate",
+   "precedence_rule": "abstain",
+   "shared_tool": "abstain"
+  },
+  {
+   "always_apply": "apply",
+   "case_id": "cbh-021",
+   "config_lookup": "abstain",
+   "family_prior_loo": "apply",
+   "keyword_jaccard>=0.15": "abstain",
+   "label": "abstain",
+   "majority(abstain)": "abstain",
+   "precedence_authority": "abstain",
+   "precedence_rule": "abstain",
+   "shared_tool": "abstain"
+  },
+  {
+   "always_apply": "apply",
+   "case_id": "cbh-022",
+   "config_lookup": "apply",
+   "family_prior_loo": "apply",
+   "keyword_jaccard>=0.15": "abstain",
+   "label": "apply",
+   "majority(abstain)": "abstain",
+   "precedence_authority": "apply",
+   "precedence_rule": "apply",
+   "shared_tool": "apply"
+  },
+  {
+   "always_apply": "apply",
+   "case_id": "cbh-023",
+   "config_lookup": "abstain",
+   "family_prior_loo": "escalate",
+   "keyword_jaccard>=0.15": "abstain",
+   "label": "escalate",
+   "majority(abstain)": "abstain",
+   "precedence_authority": "escalate",
+   "precedence_rule": "abstain",
+   "shared_tool": "abstain"
+  },
+  {
+   "always_apply": "apply",
+   "case_id": "cbh-024",
+   "config_lookup": "abstain",
+   "family_prior_loo": "abstain",
+   "keyword_jaccard>=0.15": "apply",
+   "label": "apply",
+   "majority(abstain)": "abstain",
+   "precedence_authority": "apply",
+   "precedence_rule": "apply",
+   "shared_tool": "apply"
+  },
+  {
+   "always_apply": "apply",
+   "case_id": "cbh-026",
+   "config_lookup": "abstain",
+   "family_prior_loo": "abstain",
+   "keyword_jaccard>=0.15": "abstain",
+   "label": "escalate",
+   "majority(abstain)": "abstain",
+   "precedence_authority": "escalate",
+   "precedence_rule": "abstain",
+   "shared_tool": "abstain"
+  },
+  {
+   "always_apply": "apply",
+   "case_id": "cbh-027",
+   "config_lookup": "abstain",
+   "family_prior_loo": "abstain",
+   "keyword_jaccard>=0.15": "abstain",
+   "label": "abstain",
+   "majority(abstain)": "abstain",
+   "precedence_authority": "abstain",
+   "precedence_rule": "abstain",
+   "shared_tool": "abstain"
+  },
+  {
+   "always_apply": "apply",
+   "case_id": "cbh-029",
+   "config_lookup": "apply",
+   "family_prior_loo": "apply",
+   "keyword_jaccard>=0.15": "abstain",
+   "label": "apply",
+   "majority(abstain)": "abstain",
+   "precedence_authority": "apply",
+   "precedence_rule": "apply",
+   "shared_tool": "apply"
+  },
+  {
+   "always_apply": "apply",
+   "case_id": "cbh-030",
+   "config_lookup": "abstain",
+   "family_prior_loo": "abstain",
+   "keyword_jaccard>=0.15": "abstain",
+   "label": "apply",
+   "majority(abstain)": "abstain",
+   "precedence_authority": "escalate",
+   "precedence_rule": "abstain",
+   "shared_tool": "abstain"
+  },
+  {
+   "always_apply": "apply",
+   "case_id": "cbh-032",
+   "config_lookup": "abstain",
+   "family_prior_loo": "abstain",
+   "keyword_jaccard>=0.15": "abstain",
+   "label": "abstain",
+   "majority(abstain)": "abstain",
+   "precedence_authority": "apply",
+   "precedence_rule": "apply",
+   "shared_tool": "apply"
+  },
+  {
+   "always_apply": "apply",
+   "case_id": "cbh-033",
+   "config_lookup": "abstain",
+   "family_prior_loo": "apply",
+   "keyword_jaccard>=0.15": "abstain",
+   "label": "escalate",
+   "majority(abstain)": "abstain",
+   "precedence_authority": "escalate",
+   "precedence_rule": "abstain",
+   "shared_tool": "abstain"
+  },
+  {
+   "always_apply": "apply",
+   "case_id": "cbh-035",
+   "config_lookup": "abstain",
+   "family_prior_loo": "apply",
+   "keyword_jaccard>=0.15": "abstain",
+   "label": "apply",
+   "majority(abstain)": "abstain",
+   "precedence_authority": "apply",
+   "precedence_rule": "apply",
+   "shared_tool": "apply"
+  },
+  {
+   "always_apply": "apply",
+   "case_id": "cbh-036",
+   "config_lookup": "abstain",
+   "family_prior_loo": "abstain",
+   "keyword_jaccard>=0.15": "abstain",
+   "label": "abstain",
+   "majority(abstain)": "abstain",
+   "precedence_authority": "abstain",
+   "precedence_rule": "abstain",
+   "shared_tool": "abstain"
+  },
+  {
+   "always_apply": "apply",
+   "case_id": "cbh-037",
+   "config_lookup": "abstain",
+   "family_prior_loo": "abstain",
+   "keyword_jaccard>=0.15": "abstain",
+   "label": "abstain",
+   "majority(abstain)": "abstain",
+   "precedence_authority": "abstain",
+   "precedence_rule": "abstain",
+   "shared_tool": "abstain"
+  },
+  {
+   "always_apply": "apply",
+   "case_id": "cbh-038",
+   "config_lookup": "abstain",
+   "family_prior_loo": "abstain",
+   "keyword_jaccard>=0.15": "abstain",
+   "label": "abstain",
+   "majority(abstain)": "abstain",
+   "precedence_authority": "abstain",
+   "precedence_rule": "abstain",
+   "shared_tool": "abstain"
+  },
+  {
+   "always_apply": "apply",
+   "case_id": "cbh-039",
+   "config_lookup": "apply",
+   "family_prior_loo": "abstain",
+   "keyword_jaccard>=0.15": "abstain",
+   "label": "apply",
+   "majority(abstain)": "abstain",
+   "precedence_authority": "apply",
+   "precedence_rule": "apply",
+   "shared_tool": "apply"
+  },
+  {
+   "always_apply": "apply",
+   "case_id": "cbh-040",
+   "config_lookup": "abstain",
+   "family_prior_loo": "abstain",
+   "keyword_jaccard>=0.15": "abstain",
+   "label": "abstain",
+   "majority(abstain)": "abstain",
+   "precedence_authority": "abstain",
+   "precedence_rule": "abstain",
+   "shared_tool": "abstain"
+  }
+ ],
+ "results": [
+  {
+   "accuracy": 0.371,
+   "baseline": "majority(abstain)",
+   "ci95": {
+    "accuracy": [
+     0.206,
+     0.528
+    ],
+    "macro_f1": [
+     0.085,
+     0.173
+    ]
+   },
+   "harmful_apply_rate": 0.0,
+   "harmful_transfer_rate": 0.0,
+   "macro_f1": 0.135,
+   "missed_transfer_rate": 1.0,
+   "n": 35,
+   "per_label_recall": {
+    "abstain": 1.0,
+    "apply": 0.0,
+    "escalate": 0.0,
+    "translate": 0.0
+   },
+   "prediction_counts": {
+    "abstain": 35
+   },
+   "transfer_vs_withhold": 0.543
+  },
+  {
+   "accuracy": 0.343,
+   "baseline": "always_apply",
+   "ci95": {
+    "accuracy": [
+     0.194,
+     0.514
+    ],
+    "macro_f1": [
+     0.081,
+     0.17
+    ]
+   },
+   "harmful_apply_rate": 1.0,
+   "harmful_transfer_rate": 1.0,
+   "macro_f1": 0.128,
+   "missed_transfer_rate": 0.0,
+   "n": 35,
+   "per_label_recall": {
+    "abstain": 0.0,
+    "apply": 1.0,
+    "escalate": 0.0,
+    "translate": 0.0
+   },
+   "prediction_counts": {
+    "apply": 35
+   },
+   "transfer_vs_withhold": 0.457
+  },
+  {
+   "accuracy": 0.4,
+   "baseline": "keyword_jaccard>=0.15",
+   "ci95": {
+    "accuracy": [
+     0.235,
+     0.559
+    ],
+    "macro_f1": [
+     0.103,
+     0.266
+    ]
+   },
+   "harmful_apply_rate": 0.0,
+   "harmful_transfer_rate": 0.0,
+   "macro_f1": 0.177,
+   "missed_transfer_rate": 0.938,
+   "n": 35,
+   "per_label_recall": {
+    "abstain": 1.0,
+    "apply": 0.083,
+    "escalate": 0.0,
+    "translate": 0.0
+   },
+   "prediction_counts": {
+    "abstain": 34,
+    "apply": 1
+   },
+   "transfer_vs_withhold": 0.571
+  },
+  {
+   "accuracy": 0.6,
+   "baseline": "shared_tool",
+   "ci95": {
+    "accuracy": [
+     0.441,
+     0.765
+    ],
+    "macro_f1": [
+     0.281,
+     0.425
+    ]
+   },
+   "harmful_apply_rate": 0.053,
+   "harmful_transfer_rate": 0.053,
+   "macro_f1": 0.362,
+   "missed_transfer_rate": 0.438,
+   "n": 35,
+   "per_label_recall": {
+    "abstain": 0.923,
+    "apply": 0.75,
+    "escalate": 0.0,
+    "translate": 0.0
+   },
+   "prediction_counts": {
+    "abstain": 25,
+    "apply": 10
+   },
+   "transfer_vs_withhold": 0.771
+  },
+  {
+   "accuracy": 0.6,
+   "baseline": "precedence_rule",
+   "ci95": {
+    "accuracy": [
+     0.441,
+     0.765
+    ],
+    "macro_f1": [
+     0.275,
+     0.423
+    ]
+   },
+   "harmful_apply_rate": 0.053,
+   "harmful_transfer_rate": 0.053,
+   "macro_f1": 0.358,
+   "missed_transfer_rate": 0.375,
+   "n": 35,
+   "per_label_recall": {
+    "abstain": 0.923,
+    "apply": 0.75,
+    "escalate": 0.0,
+    "translate": 0.0
+   },
+   "prediction_counts": {
+    "abstain": 24,
+    "apply": 11
+   },
+   "transfer_vs_withhold": 0.8
+  },
+  {
+   "accuracy": 0.771,
+   "baseline": "precedence_authority",
+   "ci95": {
+    "accuracy": [
+     0.618,
+     0.912
+    ],
+    "macro_f1": [
+     0.489,
+     0.688
+    ]
+   },
+   "harmful_apply_rate": 0.053,
+   "harmful_transfer_rate": 0.053,
+   "macro_f1": 0.602,
+   "missed_transfer_rate": 0.438,
+   "n": 35,
+   "per_label_recall": {
+    "abstain": 0.923,
+    "apply": 0.75,
+    "escalate": 1.0,
+    "translate": 0.0
+   },
+   "prediction_counts": {
+    "abstain": 12,
+    "apply": 10,
+    "escalate": 13
+   },
+   "transfer_vs_withhold": 0.771
+  },
+  {
+   "accuracy": 0.571,
+   "baseline": "family_prior_loo",
+   "ci95": {
+    "accuracy": [
+     0.412,
+     0.722
+    ],
+    "macro_f1": [
+     0.289,
+     0.561
+    ]
+   },
+   "harmful_apply_rate": 0.158,
+   "harmful_transfer_rate": 0.211,
+   "macro_f1": 0.445,
+   "missed_transfer_rate": 0.562,
+   "n": 35,
+   "per_label_recall": {
+    "abstain": 0.846,
+    "apply": 0.5,
+    "escalate": 0.5,
+    "translate": 0.0
+   },
+   "prediction_counts": {
+    "abstain": 19,
+    "apply": 10,
+    "escalate": 5,
+    "translate": 1
+   },
+   "transfer_vs_withhold": 0.629
+  },
+  {
+   "accuracy": 0.486,
+   "baseline": "config_lookup",
+   "ci95": {
+    "accuracy": [
+     0.324,
+     0.647
+    ],
+    "macro_f1": [
+     0.163,
+     0.361
+    ]
+   },
+   "harmful_apply_rate": 0.0,
+   "harmful_transfer_rate": 0.0,
+   "macro_f1": 0.273,
+   "missed_transfer_rate": 0.75,
+   "n": 35,
+   "per_label_recall": {
+    "abstain": 1.0,
+    "apply": 0.333,
+    "escalate": 0.0,
+    "translate": 0.0
+   },
+   "prediction_counts": {
+    "abstain": 31,
+    "apply": 4
+   },
+   "transfer_vs_withhold": 0.657
+  }
+ ]
+}

@@ -6,6 +6,7 @@ When a human has approved a decision in repository A, what should an agent do wi
 |---|---|---|
 | Synthetic | `benchmarks/transferbench/` | Handwritten fixtures and a deterministic oracle runner. Tests a policy's logic, says nothing about real repositories. |
 | Real v1 | `benchmarks/carrybench/real_v1/` | 66 labelled cases from 50 permissively licensed public repositories, pinned to commits, with pointers and hashes only and no third party text. Labels come from two blind LLM annotators. No human has labelled any case. |
+| Real v2 holdout | `benchmarks/carrybench/real_v2_holdout/` | 35 labelled cases (40 candidates, 5 contested and excluded) from 77 repositories not in Real v1. The candidates were committed unlabelled, the labels were frozen from two blind LLM annotators, and only then were systems scored. No human has labelled any case. |
 
 ## What the first results say
 
@@ -15,7 +16,13 @@ On Real v1, scored against the agreed labels (details and limits in `real_v1/BAS
 - DecisionBound's shipped transfer policy, which refuses project scoped decisions from other repositories, behaves like always abstain (0.35). Declared as personal, it says translate on 55 of 66 cases and carries a decision over in 25 of the 34 cases where a careful engineer would not.
 - Two guide-free language model runs score 0.59 and 0.68. They rarely stop for a human: they escalated 1 and 3 of the 11 cases where a person's authority was needed.
 
-These are first numbers on a small unvalidated set with wide intervals. They are not a ranking of any product.
+On the Real v2 holdout (35 cases, labels frozen before scoring, see `real_v2_holdout/HOLDOUT_RESULTS.md`):
+
+- The shipped policy again behaves like always abstain in its default setting (0.37). Its best setting scores 0.51, with an interval that overlaps always abstaining, so the earlier statement that no setting beats 0.41 does not hold on this set.
+- The best simple rule (authority topics escalate, otherwise compare the target's strongest evidence) scores 0.77 and the shipped policy never returns apply for another repository. Part of that rule's lead comes from mirroring a rule in the annotation guide.
+- The two sets differ in difficulty, so their scores are not directly comparable.
+
+These are small unvalidated sets with wide intervals. They are not a ranking of any product.
 
 ## Try it offline in one command
 
