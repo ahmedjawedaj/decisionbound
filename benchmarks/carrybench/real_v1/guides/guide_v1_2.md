@@ -6,11 +6,11 @@ Provenance: this draft was written after reading the two blind annotators' proce
 
 Everything in guide v1.1 applies unless a rule below says otherwise.
 
-What the annotators receive: under v1.2, annotators get the case paraphrase and the listed `scope_conditions` along with the pointers. The v2 annotators did. The v1.1 text says annotators do not get paraphrases, which was a rule for the blind second pass on v1 and does not hold for v2 or v1.2.
+What the annotators receive: under v1.2, annotators get the case paraphrase and the listed `scope_conditions` along with the pointers. The v2 annotators did. The v1.1 text says the second annotator does not receive the first annotator's paraphrases, which is a different thing from the curator's case paraphrase.
 
 ## What the v2 holdout notes showed
 
-The two annotators agreed on 35 of 40 cases. `AGREEMENT_REPORT.md` lists five guide ambiguities that both of them reported. R7 to R11 propose a rule for each. Annotator A also noted one pitfall (case cbh-030) that B did not mention. R12 addresses that one.
+The two annotators agreed on 35 of 40 cases. `AGREEMENT_REPORT.md` lists five guide ambiguities that one or both of them reported. R7 to R11 propose a rule for each. Annotator A also noted one pitfall (case cbh-030) that B did not mention. R12 addresses that one.
 
 ## v1.2 rules
 
@@ -25,12 +25,12 @@ R4a still holds. A condition about who acts or when ("the author writes the chan
 R9. Language conditions. A language is an ecosystem condition in two cases. The span's own wording names it. Or the case `scope_conditions` list it, whatever the span says. The second case overrides R6 for listed conditions. Check the language against the target's T1 state. If it fails, R4 applies. Do not infer a language from which names a span uses, because names such as `any` or `object` exist in more than one language.
 
 R10. Same position, different channel. This applies to security reporting. R3 and R3a keep governing AI and contributor policy, and Q1 keeps governing licence topics (a different licence or header rule is `escalate`, because there is no channel to translate).
-- Same obligation means the target requires at least what the source requires. If the target's rule is narrower, label `escalate`.
+- Same obligation means the target requires at least what the source requires. If the target requires less than the source, label `escalate`.
 - Same obligation, and the source names no repository-specific channel ("report privately, not in a public issue"), and the target says the same: `apply`.
 - Same obligation, and the source names a specific address or page that the target replaces with its own: `translate`, and write the target's channel in the translated rule. This follows the v1.1 tie-break that a changed location is `translate`.
 - The target names no channel or two conflicting channels: `escalate`.
 
-R11. Pointers that only show a path. This rule applies only when the sole target pointer for a case is `path_present`. Step 1: read neighbouring files in the target repository at the pinned commit. If text there states the stance, label from it, record `read_beyond_pointer: true` with the files read, and cap the strength at `medium`. Step 2: if the neighbouring files are also silent, do not label from the path alone. For Q1 topics follow R3 and R3a (`escalate`). For anything else mark `no_signal`. R11 overrides R5's reading that file structure is weak T3 evidence only for this reading step.
+R11. Pointers that only show a path. This rule applies only when the sole target pointer for a case is `path_present`. Step 1: read neighbouring files in the target repository at the pinned commit. If text there states the stance, label from it, record `read_beyond_pointer: true` with the files read, and cap the strength at `medium`. Step 2: if the neighbouring files are also silent, do not label from the path alone. For Q1 topics follow R3 and R3a (`escalate`). For anything else mark `no_signal`. For path-only pointers, R11 overrides R5.
 
 R12. Read the whole section of the pinned lines. If a nearby line in the same file limits or reverses what the pinned lines say, the limiting line decides, and the rationale must name it. (Case cbh-030 is the reason for this rule. The pinned lines describe auto approval of some pull requests, and lines a few rows later exclude fork pull requests.)
 
@@ -48,4 +48,4 @@ B5. Report the share of cases on authority topics (Q1) next to every score. The 
 
 It adds no human annotator and no second model family. Both remain the main open limits of CarryBench. A human should read v1.2 before it is frozen.
 
-It does not fix the existing labels. Five scored v2 holdout cases (cbh-004, 014, 020, 023, 026) rest on path-only pointers that both annotators read beyond. Those five labels came from files the pointers do not name, and the holdout results should be read with that in mind.
+It does not fix the existing labels. Four scored v2 holdout cases (cbh-004, 020, 023, 026) rest on path-only pointers that the annotators read beyond. Annotator A also noted reading beyond the pointer in cbh-014, which has a text pointer. Those labels came from files the pointers do not name, and the holdout results should be read with that in mind.
