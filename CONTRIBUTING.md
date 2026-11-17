@@ -52,3 +52,7 @@ Every commit is authored by a person. The `quality-gate` job runs `scripts/check
 Contributions must be yours to submit and compatible with Apache-2.0. Third-party code/data requires a separate provenance/license review. Linking to a paper does not grant permission to copy its implementation.
 
 Ahmed Jawed maintains the project. See GOVERNANCE.md, CODE_OF_CONDUCT.md and PUBLICATION_POLICY.md.
+
+Package publication follows the [release process](site_docs/package-release.md).
+Tested sprint changes should go through a pull request and required CI. Private
+handoffs and drafts remain outside the public repository.

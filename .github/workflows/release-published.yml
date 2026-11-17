@@ -1,0 +1,22 @@
+name: Publish new release package
+on:
+  release:
+    types: [published]
+permissions:
+  contents: read
+jobs:
+  dispatch:
+    if: github.repository == 'ahmedjawedaj/decisionbound'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      # Release events run at a tag. Dispatch the trusted main workflow so the
+      # PyPI environment can remain main-only, with no tag-wide token access.
+      - name: Start verified publishing on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: gh workflow run publish-pypi.yml --repo "$GH_REPO" --ref main -f tag="$RELEASE_TAG"

@@ -1,11 +1,17 @@
 """Docker backend must never accidentally execute untrusted tests on host."""
 from __future__ import annotations
 import subprocess
+import os
 from pathlib import Path
 from unittest.mock import patch
 import pytest
 from decisionbound.code_models import Workspace
 from decisionbound.code_sandbox import DockerTestRunner, ScriptedTestRunner
+
+
+@pytest.fixture(autouse=True)
+def non_root_caller(tmp_path, monkeypatch):
+    monkeypatch.setattr(os, 'getuid', lambda: 1000, raising=False)
 
 
 def workspace(tmp_path: Path) -> Workspace:
@@ -31,6 +37,33 @@ def test_docker_restrictions_are_argv_not_host_shell(tmp_path, monkeypatch):
     assert '--pull' in command and command[command.index('--pull')+1] == 'never'
     assert 'shell' not in options and command[-4:] == ['python', '-m', 'pytest', '-q']
     assert '--mount' in command and 'type=bind' in command[command.index('--mount')+1]
+
+
+def test_root_caller_is_refused_before_any_daemon_process(tmp_path, monkeypatch):
+    ws = workspace(tmp_path)
+    monkeypatch.setattr(os, 'getuid', lambda: 0, raising=False)
+    with patch('decisionbound.code_sandbox.subprocess.run') as launch:
+        with pytest.raises(PermissionError, match='refuses a root caller'):
+            DockerTestRunner('python:3.12').run(ws, ('python', '-V'), 4)
+    launch.assert_not_called()
+
+
+@pytest.mark.parametrize('has_posix_ids', [True, False])
+def test_container_uses_unprivileged_caller_or_platform_fallback(tmp_path, monkeypatch, has_posix_ids):
+    ws = workspace(tmp_path)
+    if has_posix_ids:
+        monkeypatch.setattr(os, 'getuid', lambda: 1234, raising=False)
+        monkeypatch.setattr(os, 'getgid', lambda: 5678, raising=False)
+        expected = '1234:5678'
+    else:
+        monkeypatch.delattr(os, 'getuid', raising=False)
+        monkeypatch.delattr(os, 'getgid', raising=False)
+        expected = '1000:1000'
+    with patch('decisionbound.code_sandbox.subprocess.run',
+               return_value=subprocess.CompletedProcess([], 0, b'', b'')) as launch:
+        DockerTestRunner('python:3.12').run(ws, ('python', '-V'), 4)
+    argv = launch.call_args.args[0]
+    assert argv[argv.index('--user') + 1] == expected
 
 
 def test_docker_timeout_forces_exact_container_cleanup(tmp_path, monkeypatch):

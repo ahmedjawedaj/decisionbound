@@ -1,0 +1,74 @@
+name: Publish verified release to PyPI
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag on tested main (for example v0.13.0a1)
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: pypi-${{ inputs.tag }}
+  cancel-in-progress: false
+jobs:
+  build:
+    if: github.ref == 'refs/heads/main' && github.repository == 'ahmedjawedaj/decisionbound'
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Require a new matching version and await main certification
+        id: preflight
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: python scripts/verify_pypi_release.py --tag "$RELEASE_TAG"
+      - name: Check out the certified immutable source commit
+        env:
+          RELEASE_SHA: ${{ steps.preflight.outputs.sha }}
+        run: git checkout --detach "$RELEASE_SHA"
+      - name: Review boundary and build distributions
+        run: |
+          python scripts/check_publication.py
+          python -m pip install build twine
+          python -m build
+          python -m twine check --strict dist/*
+      - name: Check a clean wheel installation
+        run: |
+          python -m venv /tmp/decisionbound-install
+          /tmp/decisionbound-install/bin/python -m pip install dist/*.whl
+          /tmp/decisionbound-install/bin/dbound --help
+          /tmp/decisionbound-install/bin/python -c "import decisionbound; print(decisionbound.__version__)"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pypi-distributions
+          path: dist/*
+          if-no-files-found: error
+  publish:
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.repository == 'ahmedjawedaj/decisionbound'
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/decisionbound/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: pypi-distributions
+          path: dist
+      - name: Publish with PyPI Trusted Publishing
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # release/v1

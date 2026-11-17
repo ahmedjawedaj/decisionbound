@@ -36,7 +36,7 @@ Mock testing **really creates and modifies a detached Git worktree**, then remov
 
 ## Real container-based test execution
 
-Prerequisites: local trusted Docker daemon, a pre-pulled reviewed image (ideally pinned by digest), clean Git root, initialized project, reviewed patch, and explicit authorization.
+Prerequisites: local trusted Docker daemon, a non-root caller, a pre-pulled reviewed image (ideally pinned by digest), clean Git root, initialized project, reviewed patch, and explicit authorization. A root caller receives `PermissionError` before the daemon is contacted. Platforms without POSIX user IDs use container UID/GID `1000:1000`.
 
 ```bash
 # Use a reviewed image already available locally; for illustration only:

@@ -68,6 +68,8 @@ class DockerTestRunner(IsolatedTestRunner):
     By design the container has no mounted home, secrets, SSH agent or Docker
     socket; only the isolated worktree is mounted read/write. It may mutate
     that worktree, which the verifier detects after execution.
+    A root caller is refused before contacting the daemon. On platforms without
+    POSIX user IDs the container uses the fixed unprivileged ID 1000:1000.
     """
 
     def __init__(self, image: str, *, docker_binary: str = 'docker',
@@ -87,6 +89,10 @@ class DockerTestRunner(IsolatedTestRunner):
         inspect test errors separately through a controlled local workflow.
         """
         _validate_command(command, timeout_seconds)
+        uid = getattr(os, 'getuid', lambda: 1000)()
+        gid = getattr(os, 'getgid', lambda: 1000)()
+        if uid == 0:
+            raise PermissionError('DockerTestRunner refuses a root caller; run as a non-root user')
         original = Path(workspace.path)
         if original.is_symlink():
             raise ValueError('Symlinked workspace')
@@ -104,7 +110,7 @@ class DockerTestRunner(IsolatedTestRunner):
         argv = [self.binary, 'run', '--name', name, '--rm', '--network', 'none', '--pull', 'never',
                 '--read-only', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
                 '--pids-limit', str(self.pids), '--memory', f'{self.memory_mb}m',
-                '--cpus', str(self.cpus), '--user', f'{getattr(os, "getuid", lambda: 1000)()}:{getattr(os, "getgid", lambda: 1000)()}',
+                '--cpus', str(self.cpus), '--user', f'{uid}:{gid}',
                 '--tmpfs', '/tmp:rw,nosuid,nodev,size=64m',
                 '-e', 'PYTHONDONTWRITEBYTECODE=1', '-e', 'PYTEST_DISABLE_PLUGIN_AUTOLOAD=1',
                 '--mount', f'type=bind,src={root},dst=/workspace', '-w', '/workspace',

@@ -1974,6 +1974,8 @@ container escape resistance is not independently certified by this code.
 By design the container has no mounted home, secrets, SSH agent or Docker
 socket; only the isolated worktree is mounted read/write. It may mutate
 that worktree, which the verifier detects after execution.
+A root caller is refused before contacting the daemon. On platforms without
+POSIX user IDs the container uses the fixed unprivileged ID 1000:1000.
 
 #### `DockerTestRunner.run`
 

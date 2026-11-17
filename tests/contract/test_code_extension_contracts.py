@@ -6,6 +6,13 @@ from decisionbound.code_ports import PatchProposer, IsolatedTestRunner
 from decisionbound.code_execution import run_coding_task
 from decisionbound.code_sandbox import DockerTestRunner, ScriptedTestRunner
 from tests.integration.test_code_workflow import PATCH, project  # noqa: F401
+import os
+
+
+@pytest.fixture(autouse=True)
+def non_root_caller(tmp_path, monkeypatch):
+    monkeypatch.setattr(os, 'getuid', lambda: 1000, raising=False)
+
 
 
 class CustomProposer(PatchProposer):
