@@ -139,9 +139,9 @@ jobs:
       - name: Exercise real Docker coding run and unchanged source checkout
         env:
           DBOUND_DOCKER_TEST_IMAGE: python:3.12-slim
-        run: python -m pytest -q tests/integration/test_docker_real_optional.py tests/integration/test_supervised_docker_real_optional.py --junitxml=${{ runner.temp }}/junit-docker.xml
+        run: python -m pytest -q tests/integration/test_docker_real_optional.py tests/integration/test_supervised_docker_real_optional.py tests/integration/test_docker_isolation_real.py --junitxml=${{ runner.temp }}/junit-docker.xml
       - name: Require Docker sandbox tests to have executed (no skips)
-        run: python scripts/require_executed.py junit --require tests/integration/test_docker_real_optional.py=1 --require tests/integration/test_supervised_docker_real_optional.py=1 --min-total 2 ${{ runner.temp }}/junit-docker.xml
+        run: python scripts/require_executed.py junit --require tests/integration/test_docker_real_optional.py=1 --require tests/integration/test_supervised_docker_real_optional.py=1 --require tests/integration/test_docker_isolation_real.py=12 --min-total 14 ${{ runner.temp }}/junit-docker.xml
   wheel-clean-install:
     runs-on: ubuntu-latest
     permissions:
