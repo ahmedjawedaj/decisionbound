@@ -117,3 +117,36 @@ jobs:
             junit-full.xml
             full.log
             jobobject.log
+
+  repeat:
+    name: repeat with output ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install
+        run: python -m pip install -e '.[test,web]'
+      - name: Repeat the tests and keep the failure output
+        shell: pwsh
+        run: |
+          $tests = @(
+            'tests/unit/test_storage_fair_lock.py',
+            'tests/integration/test_workflow_sprint06.py::test_concurrent_supervisors_stress_no_duplicate_claims_and_global_cap')
+          foreach ($t in $tests) {
+            $shown = 0
+            for ($i = 0; $i -lt 12; $i++) {
+              $out = python -m pytest -q -p no:cacheprovider --tb=short -rf $t 2>&1
+              if ($LASTEXITCODE -ne 0 -and $shown -lt 3) {
+                $shown++
+                Write-Host "EVIDENCE_FAIL test=$t run=$i"
+                ($out | Select-Object -Last 45) | ForEach-Object { Write-Host "  | $_" }
+              }
+            }
+          }
