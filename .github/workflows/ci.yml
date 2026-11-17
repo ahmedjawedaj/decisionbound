@@ -122,7 +122,7 @@ jobs:
         run: python scripts/require_executed.py node --min-tests 14 "$NODE_TEST_LOG"
   docker-code-sandbox:
     # Connected CI provides Docker; local development may skip this suite.
-    # This proves one real network-disabled, non-root container test path.
+    # This proves one real container test path and probes its isolation from the inside.
     # Image tags must be replaced with reviewed immutable digests for release.
     runs-on: ubuntu-latest
     permissions:
@@ -141,7 +141,7 @@ jobs:
           DBOUND_DOCKER_TEST_IMAGE: python:3.12-slim
         run: python -m pytest -q tests/integration/test_docker_real_optional.py tests/integration/test_supervised_docker_real_optional.py tests/integration/test_docker_isolation_real.py --junitxml=${{ runner.temp }}/junit-docker.xml
       - name: Require Docker sandbox tests to have executed (no skips)
-        run: python scripts/require_executed.py junit --require tests/integration/test_docker_real_optional.py=1 --require tests/integration/test_supervised_docker_real_optional.py=1 --require tests/integration/test_docker_isolation_real.py=12 --min-total 14 ${{ runner.temp }}/junit-docker.xml
+        run: python scripts/require_executed.py junit --require tests/integration/test_docker_real_optional.py=1 --require tests/integration/test_supervised_docker_real_optional.py=1 --require tests/integration/test_docker_isolation_real.py=15 --min-total 17 ${{ runner.temp }}/junit-docker.xml
   wheel-clean-install:
     runs-on: ubuntu-latest
     permissions:

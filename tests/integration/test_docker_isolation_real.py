@@ -37,32 +37,38 @@ def _probe(tmp_path, code: str, *, timeout: int = 60, runner: DockerTestRunner |
     return (runner or DockerTestRunner(IMAGE)).run(_workspace(tmp_path), ("python", "-c", code), timeout)
 
 
+UNPRIVILEGED = ("--user", "65534:65534")
+
+
 def _control(code: str, *flags: str) -> int:
-    """Run the same probe in a container started with ``flags`` and no sandbox options."""
-    done = subprocess.run(["docker", "run", "--rm", "--pull", "never", *flags, IMAGE, "python", "-c", code],
+    """Run the same probe in a container started with ``flags`` and no sandbox options.
+
+    The sandbox runs as a non-root user in CI, so controls default to a non-root user too.
+    A probe that only discriminates for root would pass vacuously there.
+    """
+    user = () if "--user" in flags else UNPRIVILEGED
+    done = subprocess.run(["docker", "run", "--rm", "--pull", "never", *user, *flags, IMAGE, "python", "-c", code],
                           capture_output=True, timeout=120)
     return done.returncode
 
 
 NETWORK_IS_LOOPBACK_ONLY = "import os, sys; sys.exit(0 if sorted(os.listdir('/sys/class/net')) == ['lo'] else 1)"
-ROOT_FILESYSTEM_IS_READ_ONLY = (
-    "import sys\n"
-    "try:\n"
-    "    open('/etc/dbound_probe', 'w').write('x')\n"
-    "except OSError:\n"
-    "    sys.exit(0)\n"
-    "sys.exit(1)\n")
+# The mount flag, not a permission error: an unprivileged user cannot write /etc even on a writable root.
+ROOT_FILESYSTEM_IS_READ_ONLY = "import os, sys; sys.exit(0 if os.statvfs('/').f_flag & os.ST_RDONLY else 1)"
+# Every capability set, including the bounding set. An unprivileged user has empty effective and
+# permitted sets whatever the container options are, so those two alone prove nothing.
 ALL_CAPABILITIES_DROPPED = (
     "import sys\n"
     "fields = dict(line.split(':', 1) for line in open('/proc/self/status').read().splitlines() if ':' in line)\n"
-    "sys.exit(0 if int(fields['CapEff'].strip(), 16) == 0 and int(fields['CapPrm'].strip(), 16) == 0 else 1)\n")
+    "sets = ('CapInh', 'CapPrm', 'CapEff', 'CapBnd', 'CapAmb')\n"
+    "sys.exit(0 if all(int(fields[k].strip(), 16) == 0 for k in sets) else 1)\n")
 
 
 def test_the_container_has_no_network_interface_but_loopback(tmp_path):
     assert _probe(tmp_path, NETWORK_IS_LOOPBACK_ONLY).exit_code == 0
 
 
-def test_control_a_default_container_does_have_a_network_interface():
+def test_control_a_host_networked_container_has_more_than_loopback():
     # Host networking shows the host's interfaces, so the probe must fail there.
     assert _control(NETWORK_IS_LOOPBACK_ONLY, "--network", "host") == 1
 
@@ -74,7 +80,7 @@ def test_the_root_filesystem_is_read_only_but_tmp_and_workspace_are_writable(tmp
     assert (tmp_path / "from_container").read_text() == "x"
 
 
-def test_control_a_default_container_can_write_its_root_filesystem():
+def test_control_a_container_without_the_option_has_a_writable_root_filesystem():
     assert _control(ROOT_FILESYSTEM_IS_READ_ONLY) == 1
 
 
@@ -86,7 +92,7 @@ def test_every_capability_is_dropped_and_privileges_cannot_grow(tmp_path):
     assert _probe(tmp_path, no_new_privs).exit_code == 0
 
 
-def test_control_a_default_container_keeps_some_capabilities():
+def test_control_a_container_without_the_option_keeps_a_capability_bounding_set():
     assert _control(ALL_CAPABILITIES_DROPPED) == 1
 
 
@@ -97,35 +103,59 @@ def test_the_process_runs_as_the_calling_user_and_not_as_root(tmp_path):
     assert _probe(tmp_path, code).exit_code == 0
 
 
-def test_host_secrets_the_docker_socket_and_home_are_not_visible(tmp_path, monkeypatch):
-    monkeypatch.setenv("DBOUND_PROBE_SECRET", "must-not-reach-the-container")
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "must-not-reach-the-container")
-    code = ("import os, sys\n"
-            "leaked = [k for k in os.environ if k in ('DBOUND_PROBE_SECRET', 'ANTHROPIC_API_KEY')]\n"
-            "ok = not leaked and not os.path.exists('/var/run/docker.sock') and not os.path.exists('/root/.ssh')\n"
-            f"ok = ok and not os.path.exists({os.path.expanduser('~')!r} + '/.ssh')\n"
-            "sys.exit(0 if ok else 1)\n")
-    assert _probe(tmp_path, code).exit_code == 0
+SECRET_NAMES = ("DBOUND_PROBE_SECRET", "ANTHROPIC_API_KEY")
+NO_SECRETS_AND_NO_DOCKER_SOCKET = (
+    "import os, sys\n"
+    f"leaked = [k for k in os.environ if k in {SECRET_NAMES!r}]\n"
+    "sys.exit(0 if not leaked and not os.path.exists('/var/run/docker.sock') else 1)\n")
 
 
-def test_only_the_workspace_is_mounted_from_the_host(tmp_path):
+def test_host_secrets_and_the_docker_socket_are_not_visible(tmp_path, monkeypatch):
+    for name in SECRET_NAMES:
+        monkeypatch.setenv(name, "must-not-reach-the-container")
+    assert _probe(tmp_path, NO_SECRETS_AND_NO_DOCKER_SOCKET).exit_code == 0
+
+
+def test_control_an_explicit_env_value_or_socket_mount_is_seen_by_the_probe():
+    assert _control(NO_SECRETS_AND_NO_DOCKER_SOCKET, "-e", "DBOUND_PROBE_SECRET=x") == 1
+    assert _control(NO_SECRETS_AND_NO_DOCKER_SOCKET, "-v", "/var/run/docker.sock:/var/run/docker.sock") == 1
+
+
+# Mount points the daemon always adds from its own files, and file systems that are not host paths.
+DAEMON_FILE_MOUNTS = ("/etc/hostname", "/etc/hosts", "/etc/resolv.conf")
+NO_HOST_PATH_IS_MOUNTED_EXCEPT_THE_WORKSPACE = (
+    "import sys\n"
+    f"daemon = {DAEMON_FILE_MOUNTS!r}\n"
+    "pseudo = {'proc', 'sysfs', 'tmpfs', 'devpts', 'mqueue', 'cgroup', 'cgroup2', 'devtmpfs', 'overlay', 'shm'}\n"
+    "extra = []\n"
+    "for line in open('/proc/self/mountinfo'):\n"
+    "    head, tail = line.split(' - ')\n"
+    "    point, fstype = head.split()[4], tail.split()[0]\n"
+    "    if fstype not in pseudo and point not in ('/', '/workspace') and point not in daemon:\n"
+    "        extra.append(point)\n"
+    "sys.exit(0 if not extra else 1)\n")
+
+
+def test_no_host_path_is_mounted_except_the_workspace(tmp_path):
     (tmp_path / "marker.txt").write_text("visible")
-    code = ("import sys\n"
-            "mounts = [l.split()[4] for l in open('/proc/self/mountinfo') if '/workspace' in l.split()[3:5] or l.split()[4] == '/workspace']\n"
-            "sys.exit(0 if open('/workspace/marker.txt').read() == 'visible' and mounts == ['/workspace'] else 1)\n")
-    assert _probe(tmp_path, code).exit_code == 0
+    assert _probe(tmp_path, NO_HOST_PATH_IS_MOUNTED_EXCEPT_THE_WORKSPACE).exit_code == 0
+    assert _probe(tmp_path, "import sys; sys.exit(0 if open('/workspace/marker.txt').read() == 'visible' else 1)").exit_code == 0
+
+
+def test_control_an_extra_bind_mount_is_seen_by_the_probe(tmp_path):
+    assert _control(NO_HOST_PATH_IS_MOUNTED_EXCEPT_THE_WORKSPACE, "-v", f"{tmp_path}:/hostdir") == 1
 
 
 def test_the_pids_limit_stops_a_fork_bomb(tmp_path):
-    code = ("import os, sys, time\n"
+    code = ("import errno, os, sys, time\n"
             "stopped = False\n"
             "for _ in range(300):\n"
             "    try:\n"
             "        if os.fork() == 0:\n"
             "            time.sleep(20)\n"
             "            os._exit(0)\n"
-            "    except OSError:\n"
-            "        stopped = True\n"
+            "    except OSError as error:\n"
+            "        stopped = error.errno == errno.EAGAIN\n"
             "        break\n"
             "sys.exit(0 if stopped else 1)\n")
     runner = DockerTestRunner(IMAGE, pids=16)
@@ -138,7 +168,7 @@ def test_the_memory_limit_kills_a_process_that_allocates_past_it(tmp_path):
     big = "b = bytearray(400 * 1024 * 1024); b[::4096] = b'x' * len(b[::4096])"
     assert _probe(tmp_path, small, runner=runner).exit_code == 0
     outcome = _probe(tmp_path, big, runner=runner)
-    assert outcome.exit_code not in (0, None), "allocating three times the limit must not succeed"
+    assert outcome.exit_code == 137, "allocating three times the limit must end in the kernel's OOM kill"
 
 
 def test_a_command_that_runs_past_its_timeout_is_killed_and_its_container_removed(tmp_path):
@@ -152,3 +182,22 @@ def test_a_command_that_runs_past_its_timeout_is_killed_and_its_container_remove
     listed = subprocess.run(["docker", "ps", "-a", "--filter", f"name={name}", "--format", "{{.Names}}"],
                             capture_output=True, text=True, timeout=30)
     assert listed.stdout.strip() == "", "the timed out container was left behind"
+
+
+CPU_QUOTA = (
+    "import sys\n"
+    "try:\n"
+    "    quota, period = open('/sys/fs/cgroup/cpu.max').read().split()\n"
+    "    ratio = None if quota == 'max' else int(quota) / int(period)\n"
+    "except FileNotFoundError:\n"
+    "    quota = int(open('/sys/fs/cgroup/cpu/cpu.cfs_quota_us').read())\n"
+    "    period = int(open('/sys/fs/cgroup/cpu/cpu.cfs_period_us').read())\n"
+    "    ratio = None if quota < 0 else quota / period\n"
+    "sys.exit(0 if ratio == EXPECTED else 1)\n")
+
+
+def test_the_cpu_ceiling_is_applied(tmp_path):
+    runner = DockerTestRunner(IMAGE, cpus=0.5)
+    assert _probe(tmp_path, CPU_QUOTA.replace("EXPECTED", "0.5"), runner=runner).exit_code == 0
+    # Control: the same probe expecting an unlimited container fails inside the sandbox.
+    assert _probe(tmp_path, CPU_QUOTA.replace("EXPECTED", "None"), runner=runner).exit_code == 1
