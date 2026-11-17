@@ -39,6 +39,44 @@ def test_health_existing_store_does_not_mutate(live):
     assert live.path.stat().st_mtime_ns == before
 
 
+def test_health_survives_the_wal_file_vanishing_mid_check(live, monkeypatch):
+    """A concurrent writer closing the last connection deletes the -wal file at any moment."""
+    wal = live.path.with_name(live.path.name + "-wal")
+    wal.write_bytes(b"x" * 10)
+    real_stat = Path.stat
+
+    def vanishing(self, *args, **kwargs):
+        if self.name.endswith("-wal"):
+            raise FileNotFoundError(2, "No such file or directory", str(self))
+        return real_stat(self, *args, **kwargs)
+
+    real_is_file = Path.is_file
+    # The race window: the file exists when it is checked and is gone when its size is read.
+    monkeypatch.setattr(Path, "is_file", lambda self: True if self.name.endswith("-wal") else real_is_file(self))
+    monkeypatch.setattr(Path, "stat", vanishing)
+    assert inspect_database(live.path).wal_bytes == 0
+
+
+def test_health_does_not_hide_a_permission_error_on_the_wal_file(live, monkeypatch):
+    """Only a missing file counts as no WAL. Any other failure to read it must stay visible."""
+    real_stat = Path.stat
+
+    def denied(self, *args, **kwargs):
+        if self.name.endswith("-wal"):
+            raise PermissionError(13, "Permission denied", str(self))
+        return real_stat(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", denied)
+    with pytest.raises(PermissionError):
+        inspect_database(live.path)
+
+
+def test_health_reports_the_wal_size_when_present(live):
+    wal = live.path.with_name(live.path.name + "-wal")
+    wal.write_bytes(b"x" * 10)
+    assert inspect_database(live.path).wal_bytes == wal.stat().st_size
+
+
 def test_missing_database_never_auto_created(tmp_path):
     path = tmp_path / "missing.sqlite3"
     with pytest.raises(StateIntegrityError):
