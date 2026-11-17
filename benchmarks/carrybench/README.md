@@ -20,6 +20,7 @@ On the Real v2 holdout (35 cases, labels frozen before scoring, see `real_v2_hol
 
 - The shipped policy again behaves like always abstain in its default setting (0.37). Its best setting scores 0.51, with an interval that overlaps always abstaining, so the earlier statement that no setting beats 0.41 does not hold on this set.
 - The best simple rule (authority topics escalate, otherwise compare the target's strongest evidence) scores 0.77 and the shipped policy never returns apply for another repository. Part of that rule's lead comes from mirroring a rule in the annotation guide.
+- A draft annotation guide v1.2 (`real_v1/guides/guide_v1_2.md`) settles six ambiguities that the two blind annotators reported on the v2 holdout. It has labelled no case, it applies to new cases only, and because it was written after reading the holdout disagreements it cannot be scored on that holdout.
 - The two sets differ in difficulty, so their scores are not directly comparable.
 
 These are small unvalidated sets with wide intervals. They are not a ranking of any product.

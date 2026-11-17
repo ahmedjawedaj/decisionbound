@@ -58,6 +58,7 @@
     "benchmarks/carrybench/real_v1/guides/guide_v0.md",
     "benchmarks/carrybench/real_v1/guides/guide_v1.md",
     "benchmarks/carrybench/real_v1/guides/guide_v1_1.md",
+    "benchmarks/carrybench/real_v1/guides/guide_v1_2.md",
     "benchmarks/carrybench/real_v1/pins.csv",
     "benchmarks/carrybench/real_v1/results/baselines_v1.json",
     "benchmarks/carrybench/real_v1/results/decisionbound_v1.json",
