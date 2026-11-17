@@ -24,7 +24,7 @@ Evidence is ranked in tiers. T1 is enforced state (lockfile, config, CI). T2 is 
 | `cases_v1.jsonl` | One header record then 66 cases. Label counts: abstain 23, apply 19, translate 13, escalate 11. |
 | `excluded_v1.jsonl` | 9 cases kept out of scoring: 8 where the two annotators disagreed and 1 with no usable signal. Raw labels are shown so nothing is hidden. |
 | `annotations/` | Every annotator's labels with rationale, and the adjudication records. The pilot author's first labels are kept so agreement before adjudication can be reproduced. |
-| `guides/` | The three versions of the annotation guide. |
+| `guides/` | The three versions of the annotation guide that labelled cases (v0, v1, v1.1), plus a draft v1.2 that has not labelled anything. |
 | `pins.csv` | 73 pinned repositories: URL, commit, SPDX licence, which signal files exist. |
 | `AGREEMENT_REPORT.md` | Agreement statistics and the problems found along the way. |
 | `BASELINE_RESULTS.md`, `results/` | Scores of eight simple baselines. |
