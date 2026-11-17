@@ -21,7 +21,7 @@ Small items that are well understood.
 - [#20](https://github.com/ahmedjawedaj/decisionbound/issues/20) Docker mount probe cannot detect a bind of a tmpfs-backed host directory.
 - [#21](https://github.com/ahmedjawedaj/decisionbound/issues/21) CarryBench config pointers can have no text hash, so a wrong line (cbh-006) passes verify.
 - [#31](https://github.com/ahmedjawedaj/decisionbound/issues/31) Stop BoundedReadOnlyAgent early on repeated identical calls and add an optional deadline.
-- [#32](https://github.com/ahmedjawedaj/decisionbound/issues/32) Mark and escape untrusted tool output in the read-only agent loop, and stop cutting observations mid-JSON.
+- [#32](https://github.com/ahmedjawedaj/decisionbound/issues/32) Mark and escape untrusted tool output in the read-only agent loop, and note when observations are cut.
 
 ## Next
 
