@@ -85,7 +85,7 @@ jobs:
         shell: bash
         run: python scripts/require_executed.py vsix --source-package apps/vscode/package.json apps/vscode/dist/decisionbound-local.vsix
       - name: Upload extension install artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: vscode-vsix-${{ matrix.os }}
           path: apps/vscode/dist/decisionbound-local.vsix
