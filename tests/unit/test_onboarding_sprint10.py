@@ -129,3 +129,13 @@ def test_network_access_is_never_reported_as_granted_by_profile_selection(state)
             with_network.append(name)
     assert with_network  # at least one built-in profile uses a provider, so the check is not vacuous
     assert 'local-safe' not in with_network  # the offline default has nothing to consent to
+
+
+def test_a_profile_that_sets_network_true_still_reports_no_network_consent(state):
+    _, store, _ = state
+    ProfileManager(store).create('open-net', 'codex', network=True)
+    service = SetupService(store, environ={'OPENAI_API_KEY': 'present'}, which=lambda _: '/usr/bin/codex')
+    status = service.configure('open-net')
+    network = [c for c in status.checks if c.key == 'network_consent']
+    assert network and all(not c.ok for c in network)
+    assert 'authorization per run' in network[0].detail

@@ -166,6 +166,18 @@ def test_tool_registry_never_grants_unlisted_call():
         tools.call("unknown", {}, {"unknown"})
 
 
+def test_registered_read_tool_is_refused_when_the_run_allowlist_excludes_it():
+    """A tool that exists and is harmless still needs a place on this run's allowlist."""
+    ran = []
+    tools = ToolRegistry()
+    tools.register(RegisteredTool("read", "Safe read", lambda args: ran.append(1) or {"ok": True}))
+    tools.register(RegisteredTool("other", "Another read", lambda args: {"ok": True}))
+    with pytest.raises(ToolPermissionDenied, match="not permitted"):
+        tools.call("read", {}, {"other"})
+    assert ran == []
+    assert tools.call("read", {}, {"read"}) == {"ok": True}
+
+
 def test_skills_lazy_loading(tmp_path):
     folder = tmp_path / "skills" / "unit-testing"
     folder.mkdir(parents=True)
@@ -216,7 +228,7 @@ def test_readonly_loop_refuses_model_requested_write(tmp_path):
         BoundedReadOnlyAgent(MaliciousPlanner(), tools, {"delete_everything"}).run("task", context)
 
 
-def test_first_denied_tool_call_ends_the_run_and_the_planner_is_not_asked_again(tmp_path):
+def test_first_denied_tool_call_ends_the_run_and_the_planner_is_not_asked_again():
     """Recorded decision: an unattended read-only run has nobody to ask, so one denial
     is final. Retrying would only give a model more tries at the permission boundary."""
     from decisionbound.agent_loop import BoundedReadOnlyAgent, Finish, Planner, ToolAction
