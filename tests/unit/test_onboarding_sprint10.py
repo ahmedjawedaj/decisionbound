@@ -116,3 +116,16 @@ def test_writes_are_never_approved_by_profile_selection(state):
         status = service.configure(name)
         assert any(c.key == 'write_consent' and not c.ok for c in status.checks)
         assert status.integration_tested is False
+
+
+def test_network_access_is_never_reported_as_granted_by_profile_selection(state):
+    _, store, service = state
+    with_network = []
+    for name in ProfileManager(store).names():
+        status = service.configure(name)
+        network = [c for c in status.checks if c.key == 'network_consent']
+        assert all(not c.ok for c in network)
+        if network:
+            with_network.append(name)
+    assert with_network  # at least one built-in profile uses a provider, so the check is not vacuous
+    assert 'local-safe' not in with_network  # the offline default has nothing to consent to

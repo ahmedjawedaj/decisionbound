@@ -144,6 +144,23 @@ def test_patch_tampering_and_git_commit_change_invalidate_authorization(complete
         gate.snapshot(wid)
 
 
+def test_export_rechecks_the_fingerprint_it_was_approved_with(completed, tmp_path, monkeypatch):
+    """Other checks stop a changed patch or checkout first, so this one is reached only
+    when the evidence still loads but hashes differently. A substituted snapshot stands
+    in for that case, and no file may be written."""
+    store, state, root, wid = completed
+    gate = ReviewGate(store, state)
+    approved = gate.snapshot(wid)
+    gate.decide(wid, expected_fingerprint=approved["fingerprint"], expected_revision=0,
+                action="approve_export", acknowledge_unverified=True)
+    changed = dict(approved, fingerprint="0" * 64)
+    monkeypatch.setattr(ReviewGate, "snapshot", lambda self, workflow_id, **kw: changed)
+    with pytest.raises(ReviewConflict, match="changed after approval"):
+        gate.export(wid, destination=tmp_path / "late.patch",
+                    expected_fingerprint=approved["fingerprint"], expected_revision=1)
+    assert not (tmp_path / "late.patch").exists()
+
+
 def test_symlinked_patch_and_origin_path_are_refused(completed, tmp_path):
     store, state, _, wid = completed
     gate = ReviewGate(store, state)

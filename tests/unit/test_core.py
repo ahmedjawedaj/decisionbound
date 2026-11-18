@@ -216,6 +216,31 @@ def test_readonly_loop_refuses_model_requested_write(tmp_path):
         BoundedReadOnlyAgent(MaliciousPlanner(), tools, {"delete_everything"}).run("task", context)
 
 
+def test_first_denied_tool_call_ends_the_run_and_the_planner_is_not_asked_again(tmp_path):
+    """Recorded decision: an unattended read-only run has nobody to ask, so one denial
+    is final. Retrying would only give a model more tries at the permission boundary."""
+    from decisionbound.agent_loop import BoundedReadOnlyAgent, Finish, Planner, ToolAction
+    ran = []
+    tools = ToolRegistry()
+    tools.register(RegisteredTool("read", "Safe read", lambda a: ran.append("read") or {"ok": True}))
+    tools.register(RegisteredTool("delete_everything", "danger", lambda _: ran.append("delete") or {}, side_effects=True))
+    asked = []
+    events = []
+
+    class RetryingPlanner(Planner):
+        def next_action(self, task, context, observations):
+            asked.append(len(observations))
+            return [ToolAction("delete_everything", {}), ToolAction("read", {}), Finish("done")][len(asked) - 1]
+
+    context = SelectiveContextCompiler().compile("task", [], 20)
+    agent = BoundedReadOnlyAgent(RetryingPlanner(), tools, {"read", "delete_everything"},
+                                 on_event=lambda name, payload: events.append(name))
+    with pytest.raises(ToolPermissionDenied):
+        agent.run("task", context)
+    assert asked == [0] and ran == []  # asked once, and neither tool ran
+    assert events == ["tool_invocation"]  # the attempt is logged, no observation exists
+
+
 def test_override_cannot_bypass_unapproved_or_project_scope(store, project):
     class UnsafePolicy(TransferPolicy):
         def evaluate(self, decision, target, forbidden=()):
