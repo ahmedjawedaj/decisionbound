@@ -51,7 +51,7 @@ jobs:
       pages: write
       id-token: write
     steps:
-      - uses: actions/deploy-pages@v4
+      - uses: actions/deploy-pages@v5
         id: deployment
 # Only a successful push validation on this repository's main can deploy.
 # The deployment builds the exact validated SHA, not an unverified later HEAD.
