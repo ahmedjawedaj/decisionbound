@@ -462,3 +462,64 @@ def test_case_pointers_that_the_audit_covers_and_the_one_checked_by_hand():
     assert list(outside.values()) == [{"tbr-n39"}]
     (repo, _, path, line), = outside
     assert (repo, path, line) == ("PrefectHQ/prefect", "ui-v2/package.json", 145)
+
+
+def test_a_commit_with_a_trailing_newline_is_refused(tmp_path):
+    files = _folder(tmp_path)
+    with pytest.raises(ValueError, match="commit"):
+        audit._load(files, "o/r", "a" * 40 + "\n", "package.json")
+
+
+@pytest.mark.parametrize("path", ["a\nb.json", "a\tb.json", "a\rb.json", "a\0b.json"])
+def test_control_characters_in_a_path_are_refused(tmp_path, path):
+    with pytest.raises(ValueError, match="unsafe repository path"):
+        audit._load(_folder(tmp_path), "o/r", "a" * 40, path)
+
+
+def test_list_files_refuses_a_row_that_could_forge_a_line_of_output(tmp_path):
+    forged = row("package_type_field", "js_module_system", "module", 3, "x", path="a.json\no/r\tbbbb\tb.json")
+    with pytest.raises(ValueError, match="unsafe repository path"):
+        audit.list_files([_pool_file(tmp_path, [forged])])
+
+
+def test_a_key_line_inside_a_tools_table_is_not_its_header():
+    text = '[tool.uv]\nindex-strategy = "x"\n'
+    result = audit.audit_row(row("pyproject_tool_table", "py_env_manager", "uv", 2), text)
+    assert result and result["suggested_line"] == 1
+
+
+def test_a_minified_file_is_counted_as_unauditable_and_not_as_wrong(tmp_path):
+    files = _folder(tmp_path)
+    (files / "o__r" / "min.json").write_text('{"type":"module"}\n', encoding="utf-8")
+    pool = _pool_file(tmp_path, [row("package_type_field", "js_module_system", "module", 1, "flat", path="min.json")])
+    report = audit.audit_pools(files, [pool])
+    assert [u["id"] for u in report["unauditable"]] == ["flat"]
+    assert report["mismatches"] == [] and report["checked"] == 0
+
+
+def test_a_multi_line_string_with_several_inner_lines_hides_all_of_them():
+    text = 'note = """\n[tool.uv]\n[tool.uv.sources]\n"""\n[tool.uv.workspace]\n'
+    result = audit.audit_row(row("pyproject_tool_table", "py_env_manager", "uv", 2), text)
+    assert result and result["suggested_line"] == 5
+
+
+def test_a_compact_two_line_json_is_unauditable():
+    text = '{"name": "a",\n"type": "module"}\n'
+    assert audit.audit_row(row("package_type_field", "js_module_system", "module", 2), text)["unauditable"] is True
+
+
+def test_a_git_clone_is_read_from_the_pinned_commit_and_not_the_working_tree(tmp_path):
+    import subprocess
+    clone = tmp_path / "files" / "o__r"
+    clone.mkdir(parents=True)
+    env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@e", GIT_COMMITTER_NAME="t",
+               GIT_COMMITTER_EMAIL="t@e", GIT_CONFIG_GLOBAL="/dev/null", GIT_CONFIG_SYSTEM="/dev/null")
+    run = lambda *a: subprocess.run(["git", "-C", str(clone), *a], check=True, capture_output=True, text=True, env=env)
+    run("init", "-q")
+    (clone / "package.json").write_text(PKG, encoding="utf-8")
+    run("add", "package.json")
+    run("commit", "-q", "-m", "c")
+    sha = run("rev-parse", "HEAD").stdout.strip()
+    (clone / "package.json").write_text('{"changed": true}\n', encoding="utf-8")
+    assert '"name": "demo"' in audit._load(tmp_path / "files", "o/r", sha, "package.json")
+    assert audit._load(tmp_path / "files", "o/r", sha, "missing.json") is None

@@ -49,6 +49,6 @@ Every wrong pointer has a suggested line in the report, and the fact itself hold
 ## Known limits of the audit
 
 - It reads one key per line in a pretty-printed `package.json`. A minified file is reported as unauditable, and none of the 126 is.
-- It reads TOML by line. Dotted keys (`tool.ruff.line-length = 88` under a parent table), inline tables and two keys on one line are not understood, so such a row would be reported wrong or not found. None of the 48 wrong pointers is of that kind, and the fact holds in the file in all 48.
+- It reads TOML by line. Dotted keys (`tool.ruff.line-length = 88` under a parent table), inline tables and two keys on one line, and a multi-line array that holds a bare one-element array on a line of its own are not understood, so such a row would be reported wrong or not found. None of the 48 wrong pointers is of that kind, and the fact holds in the file in all 48.
 - It uses the miner's own fact tables, so a fact the miner does not model is not checked.
 - The shortlist file is not audited as a file. It holds 27 distinct config-fact line pointers. 13 are pool rows and so are covered, and 14 are in no pool and were not checked.

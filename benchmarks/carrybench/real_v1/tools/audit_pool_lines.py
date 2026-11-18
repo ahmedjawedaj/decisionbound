@@ -258,19 +258,25 @@ _SHA = re.compile(r"^[0-9a-f]{40}$")
 def _safe_relative(path: str) -> PurePosixPath:
     """A repository path that stays inside its folder, else ValueError."""
     rel = PurePosixPath(path)
-    if not path or rel.is_absolute() or "\\" in path or ".." in rel.parts or "\0" in path:
+    if not path or rel.is_absolute() or "\\" in path or ".." in rel.parts or any(c in path for c in "\0\n\t\r"):
         raise ValueError(f"unsafe repository path in a pool row: {path!r}")
+    return rel
+
+
+def _check_row_location(repo: str, sha: str, path: str) -> PurePosixPath:
+    """Validate the repository, commit and path of a pool row, else ValueError."""
+    rel = _safe_relative(path)
+    if not _SHA.fullmatch(sha):
+        raise ValueError(f"unsafe commit in a pool row: {sha!r}")
+    if repo.count("/") != 1 or not all(repo.split("/")) or ".." in repo or "\n" in repo or "\t" in repo:
+        raise ValueError(f"unsafe repository name in a pool row: {repo!r}")
     return rel
 
 
 def _load(clones: Path, repo: str, sha: str, path: str) -> str | None:
     """Text of `path` at `sha`, or None when it is not there. A pool row that names
     a path outside its folder, a symlink, or a malformed commit is an error."""
-    rel = _safe_relative(path)
-    if not _SHA.match(sha):
-        raise ValueError(f"unsafe commit in a pool row: {sha!r}")
-    if repo.count("/") != 1 or not all(repo.split("/")) or ".." in repo:
-        raise ValueError(f"unsafe repository name in a pool row: {repo!r}")
+    rel = _check_row_location(repo, sha, path)
     folder = clones / repo.replace("/", "__")
     if (folder / ".git").exists():
         return miner.read_blob(folder, sha, path)
@@ -290,6 +296,7 @@ def list_files(pools: list[Path]) -> list[tuple[str, str, str]]:
             if raw.strip():
                 row = json.loads(raw)
                 if int(row.get("line_start", 0)) > 0 and row.get("kind") == "config_fact":
+                    _check_row_location(row["repo"], row["sha"], row["path"])
                     wanted.add((row["repo"], row["sha"], row["path"]))
     return sorted(wanted)
 
