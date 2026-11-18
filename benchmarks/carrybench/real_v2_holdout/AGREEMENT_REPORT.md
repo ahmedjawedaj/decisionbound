@@ -51,7 +51,7 @@ These feed a guide v1.2 for new cases only. Nothing here was changed in this set
 
 ## Known data issue
 
-In cbh-006 the config pointer names `pyproject.toml` line 330, but the Google pydocstyle setting sits at lines 342 and 343. Line 330 shows an unrelated ignore entry. The config fact carries no hash, so the verifier cannot catch this. Both annotators read the right lines and agree on the label. The pointer is left unchanged so that the frozen set matches what the annotators saw. Fix it in a later revision with a version bump.
+In cbh-006 the config pointer names `pyproject.toml` line 330, but the Google pydocstyle setting sits at lines 342 and 343. Line 330 shows an unrelated ignore entry. The config fact carries no hash, so the verifier cannot catch this. Both annotators read the right lines and agree on the label. The pointer is left unchanged so that the frozen set matches what the annotators saw. Fix it in a later revision with a version bump. Issue 21 audited all ten pointers of this kind. `errata_v2_holdout_v1.jsonl` records the hash of the right lines for cbh-006 and a second off pointer, cbh-039 (line 29 is the `format` script and the `oxfmt` dependency is at line 69). Neither changes a label.
 
 ## Reproduce
 
