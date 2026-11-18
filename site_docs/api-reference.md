@@ -655,6 +655,37 @@ This is an *execution kernel*, not a generative coding agent. Providers can
 implement Planner.next_action, but the host always enforces allowlists, effects,
 step limits and observation caps independent of any model response.
 
+### `RepeatedCallError`
+
+The planner proposed the same tool call too many times in a row.
+
+### `AgentDeadlineExceeded`
+
+The loop's own wall-clock deadline passed before the next planner or tool call.
+
+### `neutralise_markers`
+
+```python
+neutralise_markers(text: str) -> str
+```
+
+Break up any run of three or more ``<`` or ``>`` so content cannot forge a marker.
+
+### `render_untrusted_observation`
+
+```python
+render_untrusted_observation(observation: str, allowed_tools: frozenset[str] | set[str], limit: int = 3000) -> str
+```
+
+Present one stored observation to a model as marked, escaped, visibly cut data.
+
+The tool name sits outside the markers and is shown only when it is one of
+``allowed_tools``. The content between the markers is the stored observation
+with marker-like runs neutralised and cut to ``limit`` characters. A note
+after the closing marker says when the content was cut, either here or by
+the loop's own cap (the loop stores JSON objects, so text that starts with ``{`` but is not valid JSON was cut). The stored
+observation, its hash and the event ledger are not changed by this.
+
 ### `ToolAction`
 
 Strict action proposed by a planner and revalidated by the runtime.
@@ -689,6 +720,14 @@ Args:
     allowed_tools: Explicit capability names allowed for this run.
     max_steps: Hard upper bound on tool calls, from 1 to 25.
     max_observation_chars: Per-result cap before returning to planner.
+    max_identical_calls: How many times in a row the same tool and
+        arguments may run, from 1 to 25. The next identical proposal
+        raises ``RepeatedCallError`` before the tool runs. Default 3.
+    deadline_seconds: Optional wall-clock limit for the whole loop,
+        checked before each planner call and before each tool call. It
+        cannot interrupt a planner or tool call that is already running.
+        Off by default. Raises ``AgentDeadlineExceeded``.
+    clock: Monotonic clock, replaceable in tests.
 
 Side effects:
     None by default. Every call uses ``allow_writes=False`` regardless
@@ -704,6 +743,9 @@ Execute a bounded loop and return observations without claiming verification.
 
 Raises:
     ToolPermissionDenied: The planner selected a disallowed tool.
+    RepeatedCallError: The same call was proposed more than
+        ``max_identical_calls`` times in a row. Subclass of RuntimeError.
+    AgentDeadlineExceeded: ``deadline_seconds`` passed. Subclass of RuntimeError.
     RuntimeError: Maximum steps were exhausted without a Finish.
 
 ### `repository_readonly_tools`
