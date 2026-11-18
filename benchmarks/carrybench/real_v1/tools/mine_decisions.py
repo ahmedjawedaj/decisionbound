@@ -937,7 +937,7 @@ def cmd_baseline(args: argparse.Namespace) -> int:
 def cmd_verify(args: argparse.Namespace) -> int:
     """Re-hash every pointer in a case file against the pinned clones."""
     clones = Path(args.clones_dir)
-    bad = total = 0
+    bad = total = unhashed = rejected = 0
     for line in Path(args.cases).read_text(encoding="utf-8").splitlines():
         if not line.strip():
             continue
@@ -964,11 +964,17 @@ def cmd_verify(args: argparse.Namespace) -> int:
             else:
                 text = read_blob(rp, sha, p["path"])
                 ok = text is not None and (p.get("text_sha256") in (None, line_span_hash(text, p["line_start"], p["line_end"])))
+                if ok and p.get("text_sha256") is None:  # a null hash accepts any line, so a wrong line number passes
+                    unhashed += 1
+                    if args.require_hash:
+                        rejected += 1
+                        print(f"UNHASHED {c['case_id']} {role} {repo} {p.get('path')}:{p.get('line_start')}", file=sys.stderr)
             if not ok:
                 bad += 1
                 print(f"MISMATCH {c['case_id']} {role} {repo} {p.get('path')}:{p.get('line_start')}", file=sys.stderr)
-    print(json.dumps({"pointers": total, "mismatches": bad}))
-    return 1 if bad else 0
+    print(json.dumps({"pointers": total, "mismatches": bad, "unhashed_line_pointers": unhashed,
+                      "unhashed_rejected": rejected}))
+    return 1 if bad or rejected else 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -994,6 +1000,8 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(fn=cmd_baseline)
     p = sub.add_parser("verify"); p.add_argument("--cases", required=True)
     p.add_argument("--clones-dir", required=True)
+    p.add_argument("--require-hash", action="store_true",
+                   help="fail on a pointer that names lines but has no text hash. Use for every new versioned file.")
     p.set_defaults(fn=cmd_verify)
     args = ap.parse_args(argv)
     return args.fn(args)

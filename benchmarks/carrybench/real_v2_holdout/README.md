@@ -24,6 +24,8 @@ The v1 scorers keep only cases that have a `label`, so they will report nothing 
 | `selection_log_DO_NOT_SHOW_ANNOTATORS.jsonl` | Structural stratum of each case. |
 | `selection_shortlist_DO_NOT_SHOW_ANNOTATORS.jsonl` | The 118 shortlisted candidates before curation. |
 | `human_annotation/` | Protocol, label checker, blind packet builder and agreement report for the human labelling that has not happened yet. Start with `human_annotation/PROTOCOL.md`. It adds a separate label set and never edits the frozen AI labels. |
+| `errata_v2_holdout_v1.jsonl` | Erratum for the ten config pointers that name a line and have a null text hash (nine scored cases and cbh-017 in the excluded set). It holds the SHA-256 of the recorded span and of the span that holds the fact. Two pointers are off: cbh-006 (recorded line 330, setting at lines 342 and 343) and cbh-039 (recorded line 29, `oxfmt` dependency at line 69). The other eight record lines hold their fact. Labels do not change, and no frozen file is edited. |
+| `tools/errata.py` | Builds and verifies that erratum against the pinned clones. |
 | `tools/shortlist_candidates.py`, `tools/assemble_cases.py` | The seeded selection and the assembly step. They import the v1 miner and change nothing in `real_v1`. |
 
 No third party text is stored. Pointers carry repository, pinned commit, path, line range, SPDX identifier, a paraphrase and the SHA-256 of the whitespace-normalised span. A scan for runs of seven or more consecutive words shared between a paraphrase and its span found none. Every repository is MIT, Apache-2.0, BSD-2-Clause or BSD-3-Clause by the miner's licence check, with no repository flagged for non-permissive licence text.
@@ -37,6 +39,16 @@ python3 -I ../real_v1/tools/mine_decisions.py verify --cases cases_v2_holdout_ca
 ```
 
 Last run: 77 repositories fetched, 83 pointers, 0 mismatches.
+
+That run accepted the ten pointers without a hash, because `verify` treats a null hash as a match for any line. Check them with the erratum, and use `--require-hash` for any new versioned file, which fails a pointer that names lines and has no hash:
+
+```bash
+python3 -I tools/errata.py verify --errata errata_v2_holdout_v1.jsonl --clones-dir ./clones \
+  --cases cases_v2_holdout_candidates.jsonl cases_v2_holdout_v1.jsonl excluded_v2_holdout.jsonl
+python3 -I ../real_v1/tools/mine_decisions.py verify --cases <new_file>.jsonl --clones-dir ./clones --require-hash
+```
+
+The unit tests fail if any case file other than these three frozen ones holds a line pointer without a hash. The mined pools (`config_facts_*.jsonl`, the shortlist) are not case files, still hold such pointers, and were not audited. Their lines come from a first-match search, so a hash taken over a wrong line would still match. Read the line before building a case from them. Whether a recorded line holds its fact was decided by reading the pinned file, and the tool checks only that the hashes still match.
 
 ## Selection method
 
