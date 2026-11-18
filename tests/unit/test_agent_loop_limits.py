@@ -72,6 +72,15 @@ def run(planner, tools, **kw):
 
 # ------------------------------------------------------------- repeated calls
 
+@pytest.mark.parametrize("bad_args", [{"q": object()}, {1: "a", "b": 2}])
+def test_arguments_that_cannot_be_serialised_are_rejected_by_the_registry_not_the_loop(bad_args):
+    tools, calls = registry()
+    agent = BoundedReadOnlyAgent(Script([ToolAction("probe", bad_args)]), tools, {"probe"})
+    with pytest.raises(ValueError):  # the registry's schema error, as before the streak check existed
+        agent.run("task", capsule())
+    assert calls == []
+
+
 def test_repeated_identical_call_stops_after_the_limit_and_before_the_tool_runs():
     tools, calls = registry()
     agent, events = run(Script([probe()] * 10), tools, max_steps=10, max_identical_calls=3)
@@ -274,6 +283,15 @@ def test_the_cap_applies_after_escaping_so_escaping_cannot_push_text_past_it():
     text = block(stored({"text": "<" * 3000}), limit=500)
     body = text.split(UNTRUSTED_BEGIN + "\n")[1].split("\n" + UNTRUSTED_END)[0]
     assert len(body) == 500 and "<<<" not in body
+
+
+@pytest.mark.parametrize("text", ["", "hello", "None", "[1, 2, 3]"])
+def test_text_that_never_looked_like_a_stored_observation_is_not_called_cut(text):
+    assert "was cut" not in block(text)
+
+
+def test_a_valid_but_short_observation_is_not_called_cut():
+    assert "was cut" not in block(stored({"a": 1}))
 
 
 def test_a_tool_name_outside_the_allowed_set_is_shown_as_unknown():

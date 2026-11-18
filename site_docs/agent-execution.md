@@ -22,7 +22,7 @@ ReadOnlyEvidenceVerifier → audited receipt
      └── evidence_inspection_verified ≠ task_completed
 ```
 
-The host, never the language model, controls permissions. Tool descriptions are lazily filtered for the run; tool output is untrusted. The loop refuses write tools, shell execution, arbitrary URLs, source-code modifications, and unauthorized filenames.
+The host, never the language model, controls permissions. Tool descriptions are lazily filtered for the run; tool output is untrusted and is sent to the model between `<<<UNTRUSTED_TOOL_OUTPUT>>>` markers (see [Security](security.md)). The loop also stops after the same call repeats too many times in a row and can enforce an optional deadline. The loop refuses write tools, shell execution, arbitrary URLs, source-code modifications, and unauthorized filenames.
 
 ## Offline demo
 

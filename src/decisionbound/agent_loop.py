@@ -13,7 +13,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
 from collections.abc import Callable
-from typing import Any
+from typing import Any, NoReturn
 import hashlib
 from .identity import safe_relative_path
 from .models import ContextCapsule, WorkerResult
@@ -32,7 +32,7 @@ class RepeatedCallError(RuntimeError):
 
 
 class AgentDeadlineExceeded(RuntimeError):
-    """The loop's own wall-clock deadline passed between steps."""
+    """The loop's own wall-clock deadline passed before the next planner or tool call."""
 
 
 def neutralise_markers(text: str) -> str:
@@ -48,17 +48,18 @@ def render_untrusted_observation(observation: str, allowed_tools: frozenset[str]
     ``allowed_tools``. The content between the markers is the stored observation
     with marker-like runs neutralised and cut to ``limit`` characters. A note
     after the closing marker says when the content was cut, either here or by
-    the loop's own cap (a cut observation is no longer valid JSON). The stored
+    the loop's own cap (the loop stores JSON objects, so text that starts with ``{`` but is not valid JSON was cut). The stored
     observation, its hash and the event ledger are not changed by this.
     """
     text = str(observation)
     match = _TOOL_PREFIX.match(text)
     tool = match.group(1) if match and match.group(1) in allowed_tools else "unknown"
-    try:
-        json.loads(text)
-        cut_by_loop = False
-    except ValueError:
-        cut_by_loop = True
+    cut_by_loop = False
+    if text.startswith("{"):
+        try:
+            json.loads(text)
+        except ValueError:
+            cut_by_loop = True
     body = neutralise_markers(text)
     cut_here = len(body) > limit
     body = body[:limit]
@@ -142,7 +143,7 @@ class BoundedReadOnlyAgent(AgentWorker):
         self.deadline_seconds = deadline_seconds
         self.clock = clock
 
-    def _stop(self, reason: str, steps: int, error: RuntimeError, name: str | None = None) -> None:
+    def _stop(self, reason: str, steps: int, error: RuntimeError, name: str | None = None) -> NoReturn:
         """Record why the loop stopped, without arguments or output, then raise."""
         if self.on_event:
             payload: dict[str, Any] = {"reason": reason, "steps_run": steps}
@@ -177,7 +178,11 @@ class BoundedReadOnlyAgent(AgentWorker):
                 return WorkerResult("prepared", action.message, tuple(observations))
             if not isinstance(action, ToolAction):
                 raise TypeError("Planner output must be ToolAction or Finish")
-            arguments_json = json.dumps(action.arguments, sort_keys=True)
+            try:
+                arguments_json = json.dumps(action.arguments, sort_keys=True)
+            except (TypeError, ValueError):
+                # Leave rejection of odd arguments to the tool registry, as before this check existed.
+                arguments_json = repr(action.arguments)
             call = (action.name, arguments_json)
             streak = streak + 1 if call == last_call else 1
             last_call = call

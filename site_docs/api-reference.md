@@ -661,7 +661,7 @@ The planner proposed the same tool call too many times in a row.
 
 ### `AgentDeadlineExceeded`
 
-The loop's own wall-clock deadline passed between steps.
+The loop's own wall-clock deadline passed before the next planner or tool call.
 
 ### `neutralise_markers`
 
@@ -683,7 +683,7 @@ The tool name sits outside the markers and is shown only when it is one of
 ``allowed_tools``. The content between the markers is the stored observation
 with marker-like runs neutralised and cut to ``limit`` characters. A note
 after the closing marker says when the content was cut, either here or by
-the loop's own cap (a cut observation is no longer valid JSON). The stored
+the loop's own cap (the loop stores JSON objects, so text that starts with ``{`` but is not valid JSON was cut). The stored
 observation, its hash and the event ledger are not changed by this.
 
 ### `ToolAction`

@@ -28,7 +28,7 @@
 
 ## Agent loop stop reasons
 
-The read-only loop emits a `loop_stopped` event with `reason` (`repeated_call`, `deadline` or `step_budget`), `steps_run`, and for a repeated call the tool `name`. It never carries arguments or tool output. All three stops raise a `RuntimeError` subclass or `RuntimeError` itself, so existing handlers keep working. Stored observations keep the shape `{"tool": ..., "result": ...}` that the evidence verifier recomputes, and the tool name comes first so a cut observation still shows it. The markers are added only when the planner builds its request, so stored sizes and hashes are unchanged.
+The read-only loop emits a `loop_stopped` event with `reason` (`repeated_call`, `deadline` or `step_budget`), `steps_run`, and for a repeated call the tool `name`. It never carries arguments or tool output. All three stops raise a `RuntimeError` subclass or `RuntimeError` itself, so existing handlers keep working. Stored observations keep the shape `{"tool": ..., "result": ...}` that the evidence verifier parses and whose size and hash the ledger verifier checks, and the tool name comes first so a cut observation still shows it. The markers are added only when the planner builds its request, so stored sizes and hashes are unchanged. They add about 75 estimated input tokens per observation shown (about 300 for the four the planner sends), which counts against the planner's input bound.
 
 ## Security boundaries for contributors
 
