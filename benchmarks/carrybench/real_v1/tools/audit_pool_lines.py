@@ -18,7 +18,11 @@ It does not say the pool row was a good case.
 
 `<clones-dir>/<owner>__<repo>` may be a git clone made by `fetch_pins.py` (the
 file is read from the pinned commit) or a plain directory holding the files
-at the pinned commit under their repository paths. Standard library only.
+at the pinned commit under their repository paths. `--list-files` prints the
+repo, commit and path of each of the files the audit reads, so the plain
+directory can be filled by any means. A pool row whose path leaves its folder,
+passes through a symlink or names a malformed commit stops the run with an
+error. Standard library only.
 No third-party text is written: the output holds paths, line numbers, a short
 reason, and the matched key name.
 """
@@ -29,7 +33,7 @@ import importlib.util
 import json
 import re
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 _HERE = Path(__file__).resolve().parent
 _spec = importlib.util.spec_from_file_location("mine_decisions", _HERE / "mine_decisions.py")
@@ -153,6 +157,9 @@ def audit_row(row: dict, text: str) -> dict | None:
     lines = text.splitlines()
     n = int(row["line_start"])
     how = row["how"]
+    if not row.get("families"):
+        return {"why": "row names no family, so it cannot be audited", "suggested_line": 0,
+                "unauditable": True}
     fam = row["families"][0]["family"]
     member = row["families"][0]["member"]
     if n < 1 or n > len(lines):
@@ -245,12 +252,46 @@ def audit_row(row: dict, text: str) -> dict | None:
 
 # ----------------------------------------------------------------------- run
 
+_SHA = re.compile(r"^[0-9a-f]{40}$")
+
+
+def _safe_relative(path: str) -> PurePosixPath:
+    """A repository path that stays inside its folder, else ValueError."""
+    rel = PurePosixPath(path)
+    if not path or rel.is_absolute() or "\\" in path or ".." in rel.parts or "\0" in path:
+        raise ValueError(f"unsafe repository path in a pool row: {path!r}")
+    return rel
+
+
 def _load(clones: Path, repo: str, sha: str, path: str) -> str | None:
+    """Text of `path` at `sha`, or None when it is not there. A pool row that names
+    a path outside its folder, a symlink, or a malformed commit is an error."""
+    rel = _safe_relative(path)
+    if not _SHA.match(sha):
+        raise ValueError(f"unsafe commit in a pool row: {sha!r}")
+    if repo.count("/") != 1 or not all(repo.split("/")) or ".." in repo:
+        raise ValueError(f"unsafe repository name in a pool row: {repo!r}")
     folder = clones / repo.replace("/", "__")
     if (folder / ".git").exists():
         return miner.read_blob(folder, sha, path)
-    target = folder / path
-    return target.read_text(encoding="utf-8", errors="replace") if target.is_file() else None
+    current = folder
+    for part in rel.parts:
+        current = current / part
+        if current.is_symlink():
+            raise ValueError(f"symlink in the path of a pool row: {path!r}")
+    return current.read_text(encoding="utf-8", errors="replace") if current.is_file() else None
+
+
+def list_files(pools: list[Path]) -> list[tuple[str, str, str]]:
+    """The (repo, sha, path) of every file the audit reads, sorted and unique."""
+    wanted = set()
+    for pool in pools:
+        for raw in pool.read_text(encoding="utf-8").splitlines():
+            if raw.strip():
+                row = json.loads(raw)
+                if int(row.get("line_start", 0)) > 0 and row.get("kind") == "config_fact":
+                    wanted.add((row["repo"], row["sha"], row["path"]))
+    return sorted(wanted)
 
 
 def audit_pools(clones: Path, pools: list[Path]) -> dict:
@@ -295,11 +336,17 @@ def audit_pools(clones: Path, pools: list[Path]) -> dict:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--clones-dir", type=Path, required=True)
+    ap.add_argument("--clones-dir", type=Path, default=Path("."))
     ap.add_argument("--pool", type=Path, action="append", required=True)
+    ap.add_argument("--list-files", action="store_true",
+                    help="print repo, commit and path (tab separated) of each file the audit reads, then stop")
     ap.add_argument("--out", type=Path, help="write the report here instead of stdout")
-    ap.add_argument("--strict", action="store_true", help="exit 1 when any pointer is wrong or a source is missing")
+    ap.add_argument("--strict", action="store_true", help="exit 1 when any pointer is wrong, a source is missing or a row cannot be audited")
     args = ap.parse_args(argv)
+    if args.list_files:
+        for repo, sha, path in list_files(args.pool):
+            print(f"{repo}\t{sha}\t{path}")
+        return 0
     report = audit_pools(args.clones_dir, args.pool)
     text = json.dumps(report, indent=1, sort_keys=True) + "\n"
     if args.out:
@@ -309,7 +356,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"checked {report['checked']}: {report['ok']} ok, {len(report['mismatches'])} wrong, "
           f"{len(report['unauditable'])} unauditable, {len(report['missing_source'])} missing source",
           file=sys.stderr)
-    bad = report["mismatches"] or report["missing_source"]
+    bad = report["mismatches"] or report["missing_source"] or report["unauditable"]
     return 1 if (args.strict and bad) else 0
 
 

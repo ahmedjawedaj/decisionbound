@@ -48,7 +48,7 @@ python3 -I tools/errata.py verify --errata errata_v2_holdout_v1.jsonl --clones-d
 python3 -I ../real_v1/tools/mine_decisions.py verify --cases <new_file>.jsonl --clones-dir ./clones --require-hash
 ```
 
-The unit tests fail if any case file other than these three frozen ones holds a line pointer without a hash. The mined pools (`config_facts_*.jsonl`, the shortlist) are not case files and still hold such pointers. Their lines come from a first-match search, so a hash taken over a wrong line would still match. The config-fact pools were audited line by line, see `../POOL_LINE_AUDIT.md`: 48 of 584 pointers name the wrong line, and none of those is used by a scored case apart from the two in the erratum. The shortlist was not audited. Read the line before building a case from any pool row. Whether a recorded line holds its fact was decided by reading the pinned file, and the tool checks only that the hashes still match.
+The unit tests fail if any case file other than these three frozen ones holds a line pointer without a hash. The mined pools (`config_facts_*.jsonl`, the shortlist) are not case files and still hold such pointers. Their lines come from a first-match search, so a hash taken over a wrong line would still match. The config-fact pools were audited line by line, see `../POOL_LINE_AUDIT.md`: 48 of 584 pointers name the wrong line, and none of those is used by a case file apart from the two in the erratum. One case pointer (tbr-n39) is not a pool row and was checked by hand. The shortlist was not audited. Read the line before building a case from any pool row. Whether a recorded line holds its fact was decided by reading the pinned file, and the tool checks only that the hashes still match.
 
 ## Selection method
 

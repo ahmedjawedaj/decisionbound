@@ -311,3 +311,154 @@ def test_the_audit_agrees_with_the_erratum_and_no_other_case_pointer_is_wrong():
 def test_committed_report_is_what_the_tool_computes_from_the_pinned_files():
     fresh = audit.audit_pools(Path(os.environ["CARRYBENCH_FILES"]), POOLS)
     assert fresh == _report()
+
+
+# ------------------------------------------------ cases that kill surviving mutants
+
+def test_a_nested_package_manager_key_is_not_the_top_level_one():
+    text = '{\n  "name": "a",\n  "engines": {\n    "packageManager": "pnpm@9.0.0"\n  },\n  "packageManager": "pnpm@9.0.0"\n}\n'
+    nested = audit.audit_row(row("packageManager_field", "js_package_manager", "pnpm", 4), text)
+    assert nested and nested["suggested_line"] == 6
+    assert audit.audit_row(row("packageManager_field", "js_package_manager", "pnpm", 6), text) is None
+
+
+def test_a_dependency_line_for_another_tool_is_not_this_tools_declaration():
+    vitest = number(PKG, '"vitest": "2.0.0"')
+    result = audit.audit_row(row("dependency_declared", "js_formatter", "oxfmt", vitest), PKG)
+    assert result and result["suggested_line"] == number(PKG, '"oxfmt": "1.0.0"')
+
+
+def test_a_convention_under_another_table_is_not_the_pydocstyle_convention():
+    text = '[tool.other]\nconvention = "google"\n\n[tool.ruff.lint.pydocstyle]\nconvention = "google"\n'
+    result = audit.audit_row(row("ruff_pydocstyle_convention", "py_docstring_style", "google", 2), text)
+    assert result and result["suggested_line"] == 5
+    assert audit.audit_row(row("ruff_pydocstyle_convention", "py_docstring_style", "google", 5), text) is None
+
+
+def test_the_older_pydocstyle_table_location_is_also_accepted():
+    text = '[tool.ruff.pydocstyle]\nconvention = "numpy"\n'
+    assert audit.audit_row(row("ruff_pydocstyle_convention", "py_docstring_style", "numpy", 2), text) is None
+
+
+def test_pep257_is_recorded_as_sphinx_the_way_the_miner_records_it():
+    text = '[tool.ruff.lint.pydocstyle]\nconvention = "pep257"\n'
+    assert audit.audit_row(row("ruff_pydocstyle_convention", "py_docstring_style", "sphinx", 2), text) is None
+    assert audit.audit_row(row("ruff_pydocstyle_convention", "py_docstring_style", "pep257", 2), text)
+
+
+def test_the_ruff_format_table_is_not_the_plain_ruff_table():
+    text = '[tool.ruff]\nline-length = 90\n\n[tool.ruff.format]\nquote-style = "double"\n'
+    result = audit.audit_row(row("pyproject_tool_table", "py_formatter", "ruff_format", 1), text)
+    assert result and result["suggested_line"] == 4
+    assert audit.audit_row(row("pyproject_tool_table", "py_formatter", "ruff_format", 4), text) is None
+
+
+def test_two_triple_quote_marks_on_one_line_do_not_open_a_string():
+    text = 'note = """one line"""\n[tool.ruff]\nline-length = 90\n'
+    assert audit.audit_row(row("ruff_line_length", "py_line_length", "90", 3), text) is None
+
+
+def _pool_file(tmp_path, rows):
+    pool = tmp_path / "pool.jsonl"
+    pool.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+    return pool
+
+
+def _folder(tmp_path):
+    files = tmp_path / "files"
+    (files / "o__r").mkdir(parents=True)
+    (files / "o__r" / "package.json").write_text(PKG, encoding="utf-8")
+    return files
+
+
+def test_strict_mode_also_fails_when_only_a_source_is_missing_or_unauditable(tmp_path):
+    files = _folder(tmp_path)
+    missing = _pool_file(tmp_path, [row("package_type_field", "js_module_system", "module", 3, "gone",
+                                        repo="o/absent", path="package.json")])
+    argv = ["--clones-dir", str(files), "--pool", str(missing), "--out", str(tmp_path / "o.json")]
+    assert audit.main(argv) == 0 and audit.main(argv + ["--strict"]) == 1
+    (files / "o__r" / "min.json").write_text('{"type":"module"}\n', encoding="utf-8")
+    flat = _pool_file(tmp_path, [row("package_type_field", "js_module_system", "module", 1, "flat", path="min.json")])
+    argv = ["--clones-dir", str(files), "--pool", str(flat), "--out", str(tmp_path / "o.json")]
+    assert audit.main(argv) == 0 and audit.main(argv + ["--strict"]) == 1
+
+
+def test_a_row_with_no_family_is_unauditable_and_does_not_crash():
+    bare = dict(row("package_type_field", "x", "y", 1))
+    bare["families"] = []
+    result = audit.audit_row(bare, PKG)
+    assert result["unauditable"] is True
+
+
+def test_the_same_id_in_two_pools_counts_twice_and_within_one_pool_once(tmp_path):
+    files = _folder(tmp_path)
+    good = row("package_type_field", "js_module_system", "module", number(PKG, '"type": "module"'), "same", path="package.json")
+    first = _pool_file(tmp_path, [good, good])
+    second = tmp_path / "second.jsonl"
+    second.write_text(json.dumps(good) + "\n", encoding="utf-8")
+    assert audit.audit_pools(files, [first])["checked"] == 1
+    assert audit.audit_pools(files, [first, second])["checked"] == 2
+
+
+@pytest.mark.parametrize("path", ["../escape.json", "/etc/passwd", "a/../../b", "a\\b", ""])
+def test_a_row_that_names_a_path_outside_its_folder_stops_the_run(tmp_path, path):
+    files = _folder(tmp_path)
+    with pytest.raises(ValueError, match="unsafe repository path"):
+        audit._load(files, "o/r", "a" * 40, path)
+
+
+def test_a_malformed_commit_or_repository_name_stops_the_run(tmp_path):
+    files = _folder(tmp_path)
+    with pytest.raises(ValueError, match="commit"):
+        audit._load(files, "o/r", "--output=x", "package.json")
+    for bad in ("o/..", "o/../r", "../r", "onlyone", "o/"):
+        with pytest.raises(ValueError, match="repository name"):
+            audit._load(files, bad, "a" * 40, "package.json")
+
+
+def test_a_symlink_in_the_path_of_a_row_stops_the_run(tmp_path):
+    files = _folder(tmp_path)
+    secret = tmp_path / "secret.txt"
+    secret.write_text("private", encoding="utf-8")
+    (files / "o__r" / "link.json").symlink_to(secret)
+    (files / "o__r" / "dir").symlink_to(tmp_path, target_is_directory=True)
+    with pytest.raises(ValueError, match="symlink"):
+        audit._load(files, "o/r", "a" * 40, "link.json")
+    with pytest.raises(ValueError, match="symlink"):
+        audit._load(files, "o/r", "a" * 40, "dir/secret.txt")
+    assert "demo" in audit._load(files, "o/r", "a" * 40, "package.json")
+
+
+def test_list_files_prints_each_file_the_audit_reads_once(tmp_path, capsys):
+    good = row("package_type_field", "js_module_system", "module", 3, "a", path="package.json")
+    again = row("package_type_field", "js_module_system", "module", 9, "b", path="package.json")
+    nolines = row("package_type_field", "js_module_system", "module", 0, "c", path="other.json")
+    pool = _pool_file(tmp_path, [good, again, nolines])
+    assert audit.main(["--list-files", "--pool", str(pool)]) == 0
+    assert capsys.readouterr().out == f"o/r\t{'a' * 40}\tpackage.json\n"
+    real = audit.list_files(POOLS)
+    assert len(real) == len(set(real)) == 126
+
+
+def test_case_pointers_that_the_audit_covers_and_the_one_checked_by_hand():
+    """24 distinct config-fact pointers are used by case files. 23 are pool rows the audit covers.
+    The 24th (tbr-n39, PrefectHQ/prefect ui-v2/package.json line 145) is not a pool row."""
+    pool_keys = {(r["repo"], r["sha"], r["path"], r["line_start"])
+                 for r in _pool_rows().values() if r["line_start"] > 0 and r["kind"] == "config_fact"}
+    used = {}
+    for path in list((BENCH / "real_v1").glob("*.jsonl")) + list((BENCH / "real_v2_holdout").glob("*.jsonl")):
+        if "config_facts" in path.name or "errata" in path.name:
+            continue
+        for raw in path.read_text(encoding="utf-8").splitlines():
+            if raw.strip():
+                case = json.loads(raw)
+                target = case.get("target")
+                for ev in (target.get("evidence", []) if isinstance(target, dict) else []):
+                    if ev.get("line_start", 0) > 0 and str(ev.get("kind", "")).startswith("config_fact"):
+                        used.setdefault((target["repo"], target["sha"], ev["path"], ev["line_start"]), set()).add(case.get("case_id"))
+    assert len(used) == 24
+    outside = {k: v for k, v in used.items() if k not in pool_keys}
+    assert len(used) - len(outside) == 23
+    assert list(outside.values()) == [{"tbr-n39"}]
+    (repo, _, path, line), = outside
+    assert (repo, path, line) == ("PrefectHQ/prefect", "ui-v2/package.json", 145)
