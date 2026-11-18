@@ -61,3 +61,64 @@ def test_cli_mock_run_executes_only_disposable_checkout(project, tmp_path, monke
     assert not data['acceptance_verified'] and not data['task_completed']
     assert data['tests'][0]['kind'] == 'mock'
     assert (root/'app.py').read_text() == 'VALUE = 1\n'
+
+
+APPLY_ARGS = ['--image', 'python:3.12', '--test-cmd', 'python -m pytest -q']
+
+
+@pytest.mark.parametrize('flags', [['--approve-writes'], ['--allow-docker']])
+def test_code_apply_needs_both_flags_not_just_one(project, tmp_path, monkeypatch, flags):
+    root, state, _ = project
+    monkeypatch.setenv('DBOUND_HOME', str(state))
+    patch = tmp_path/'change.patch'
+    patch.write_text(PATCH)
+    result = CliRunner().invoke(app, ['code', 'apply', 'Fix bug', '--path', str(root),
+                                      '--patch-file', str(patch), *APPLY_ARGS, *flags])
+    assert result.exit_code != 0
+    assert 'mandatory' in unstyle(result.output)  # the consent message, not the missing-image one
+    assert (root/'app.py').read_text() == 'VALUE = 1\n'
+
+
+def test_code_mock_run_and_repair_mock_refuse_without_approve_writes(project, tmp_path, monkeypatch):
+    root, state, _ = project
+    monkeypatch.setenv('DBOUND_HOME', str(state))
+    patch = tmp_path/'change.patch'
+    patch.write_text(PATCH)
+    contract = tmp_path/'contract.json'
+    contract.write_text('{}')
+    mock = CliRunner().invoke(app, ['code', 'mock-run', 'Fix bug', '--path', str(root),
+                                    '--patch-file', str(patch)])
+    repair = CliRunner().invoke(app, ['code', 'repair-mock', 'Fix bug', '--path', str(root),
+                                      '--contract', str(contract), '--key', 'k1',
+                                      '--patch-file', str(patch)])
+    assert mock.exit_code != 0 and 'approve-writes' in unstyle(mock.output)
+    assert repair.exit_code != 0 and 'approve-writes' in unstyle(repair.output)
+    assert (root/'app.py').read_text() == 'VALUE = 1\n'
+
+
+CONSENT_COMMANDS = {
+    'propose': (['--model', 'm', '--input-price', '1', '--output-price', '1', '--target', 'app.py',
+                 '--image', 'python:3.12', '--test-cmd', 'pytest'],
+                ['--allow-remote', '--approve-writes', '--allow-docker']),
+    'repair-provider': (['--contract', 'c.json', '--key', 'k1', '--model', 'm', '--input-price', '1',
+                         '--output-price', '1', '--max-cost', '1', '--image', 'python:3.12'],
+                        ['--allow-remote', '--allow-docker', '--approve-writes']),
+    'native-propose': (['--contract', 'c.json', '--harness', 'claude', '--model', 'm',
+                        '--image', 'python:3.12'],
+                       ['--allow-native', '--allow-docker', '--approve-writes']),
+}
+
+
+@pytest.mark.parametrize('command', sorted(CONSENT_COMMANDS))
+def test_model_and_native_write_commands_need_every_consent_flag(project, monkeypatch, command):
+    """Each missing flag on its own must stop the command with the consent message."""
+    root, state, _ = project
+    monkeypatch.setenv('DBOUND_HOME', str(state))
+    base, flags = CONSENT_COMMANDS[command]
+    for missing in flags:
+        given = [f for f in flags if f != missing]
+        result = CliRunner().invoke(app, ['code', command, 'Fix bug', '--path', str(root), *base, *given])
+        text = ' '.join(unstyle(result.output).split())
+        assert result.exit_code != 0, missing
+        assert text.count('Requires') >= 1 and all(f in text for f in flags), (missing, text)
+    assert (root/'app.py').read_text() == 'VALUE = 1\n'

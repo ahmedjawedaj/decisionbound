@@ -16,6 +16,18 @@ def test_remote_requires_explicit_opt_in_and_key(monkeypatch):
         t.complete(messages=[], schema=ACTION_SCHEMA, max_output_tokens=100)
 
 
+def test_anthropic_transport_also_refuses_without_opt_in_and_key(monkeypatch):
+    calls = []
+    off = AnthropicJSONTransport(model="mock", enabled=False, exchange=lambda *a: calls.append(a))
+    with pytest.raises(PermissionError):
+        off.complete(messages=[], schema=ACTION_SCHEMA, max_output_tokens=100)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    on = AnthropicJSONTransport(model="mock", enabled=True, exchange=lambda *a: calls.append(a))
+    with pytest.raises(ValueError, match="ANTHROPIC_API_KEY"):
+        on.complete(messages=[], schema=ACTION_SCHEMA, max_output_tokens=100)
+    assert calls == []  # nothing was sent in either case
+
+
 def test_mocked_openai_json_schema_request(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "SECRET_SHOULD_NEVER_LEAK")
     witnessed = {}
