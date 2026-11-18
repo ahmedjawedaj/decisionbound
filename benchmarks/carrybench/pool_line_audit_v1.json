@@ -1,0 +1,575 @@
+{
+ "by_how": {
+  "black_line_length": {
+   "checked": 5,
+   "mismatch": 1
+  },
+  "dependency_declared": {
+   "checked": 157,
+   "mismatch": 22
+  },
+  "packageManager_field": {
+   "checked": 39,
+   "mismatch": 0
+  },
+  "package_type_field": {
+   "checked": 37,
+   "mismatch": 12
+  },
+  "pyproject_tool_table": {
+   "checked": 237,
+   "mismatch": 4
+  },
+  "requires_python": {
+   "checked": 54,
+   "mismatch": 0
+  },
+  "ruff_line_length": {
+   "checked": 40,
+   "mismatch": 1
+  },
+  "ruff_pydocstyle_convention": {
+   "checked": 15,
+   "mismatch": 8
+  }
+ },
+ "checked": 584,
+ "format": "carrybench-pool-line-audit-v1",
+ "mismatches": [
+  {
+   "how": "package_type_field",
+   "id": "032eda471058cf96",
+   "path": "package.json",
+   "pool": "config_facts_v1.jsonl",
+   "recorded_line": 5,
+   "repo": "TanStack/query",
+   "sha": "d63a027c26b2489b8be065ad76f638e36216854a",
+   "suggested_line": 12,
+   "why": "line is not the top-level \"type\" key"
+  },
+  {
+   "how": "dependency_declared",
+   "id": "f57fbaad5b51513a",
+   "path": "package.json",
+   "pool": "config_facts_v1.jsonl",
+   "recorded_line": 32,
+   "repo": "TanStack/query",
+   "sha": "d63a027c26b2489b8be065ad76f638e36216854a",
+   "suggested_line": 74,
+   "why": "line is not an entry of devDependencies or dependencies for this tool"
+  },
+  {
+   "how": "ruff_line_length",
+   "id": "18a1e3a622bf1a14",
+   "path": "pyproject.toml",
+   "pool": "config_facts_v1.jsonl",
+   "recorded_line": 625,
+   "repo": "apache/airflow",
+   "sha": "3d8302a9ead0501450a55a40115032c3384ddcc3",
+   "suggested_line": 629,
+   "why": "line is not line-length under [tool.ruff]"
+  },
+  {
+   "how": "dependency_declared",
+   "id": "8b7ddefc7d2ea80e",
+   "path": "package.json",
+   "pool": "config_facts_v1.jsonl",
+   "recorded_line": 97,
+   "repo": "backstage/backstage",
+   "sha": "9a694158d16a8ef2c73ba91803f8438c7016cee3",
+   "suggested_line": 165,
+   "why": "line is not an entry of devDependencies or dependencies for this tool"
+  },
+  {
+   "how": "dependency_declared",
+   "id": "6c4ab351f14535ce",
+   "path": "package.json",
+   "pool": "config_facts_v1.jsonl",
+   "recorded_line": 98,
+   "repo": "backstage/backstage",
+   "sha": "9a694158d16a8ef2c73ba91803f8438c7016cee3",
+   "suggested_line": 158,
+   "why": "line is not an entry of devDependencies or dependencies for this tool"
+  },
+  {
+   "how": "ruff_pydocstyle_convention",
+   "id": "480102c2bb816366",
+   "path": "pyproject.toml",
+   "pool": "config_facts_v1.jsonl",
+   "recorded_line": 64,
+   "repo": "crewAIInc/crewAI",
+   "sha": "758b2c1d527e433750c46a06baa93708057d9d4d",
+   "suggested_line": 109,
+   "why": "line is not the pydocstyle convention"
+  },
+  {
+   "how": "ruff_pydocstyle_convention",
+   "id": "e5c2bad2e3df95d4",
+   "path": "pyproject.toml",
+   "pool": "config_facts_v1.jsonl",
+   "recorded_line": 205,
+   "repo": "great-expectations/great_expectations",
+   "sha": "eadca9dd020d37f039ba9fd69a7e0b826acaced3",
+   "suggested_line": 273,
+   "why": "line is not the pydocstyle convention"
+  },
+  {
+   "how": "dependency_declared",
+   "id": "c7ee6ca3f801b168",
+   "path": "package.json",
+   "pool": "config_facts_v1.jsonl",
+   "recorded_line": 69,
+   "repo": "jupyterlab/jupyterlab",
+   "sha": "4b69f6286fcbbfa114d108d26a6459aec18e7324",
+   "suggested_line": 116,
+   "why": "line is not an entry of devDependencies or dependencies for this tool"
+  },
+  {
+   "how": "dependency_declared",
+   "id": "9416ffdc2403fa7f",
+   "path": "package.json",
+   "pool": "config_facts_v1.jsonl",
+   "recorded_line": 83,
+   "repo": "jupyterlab/jupyterlab",
+   "sha": "4b69f6286fcbbfa114d108d26a6459aec18e7324",
+   "suggested_line": 124,
+   "why": "line is not an entry of devDependencies or dependencies for this tool"
+  },
+  {
+   "how": "dependency_declared",
+   "id": "8e6d2c64908cdf23",
+   "path": "package.json",
+   "pool": "config_facts_v1.jsonl",
+   "recorded_line": 35,
+   "repo": "microsoft/playwright",
+   "sha": "b4d016aadc5cbd2b898a284307975fe73e05483d",
+   "suggested_line": 129,
+   "why": "line is not an entry of devDependencies or dependencies for this tool"
+  },
+  {
+   "how": "dependency_declared",
+   "id": "c2f0490fb9025821",
+   "path": "package.json",
+   "pool": "config_facts_v1.jsonl",
+   "recorded_line": 173,
+   "repo": "mozilla/fxa",
+   "sha": "9c3f31d650507c399990da8ea8e200c9109d34c5",
+   "suggested_line": 261,
+   "why": "line is not an entry of devDependencies or dependencies for this tool"
+  },
+  {
+   "how": "package_type_field",
+   "id": "486d16f4043c3995",
+   "path": "package.json",
+   "pool": "config_facts_v1.jsonl",
+   "recorded_line": 7,
+   "repo": "nestjs/nest",
+   "sha": "454123b9283a5f742c4232c7692067c085509341",
+   "suggested_line": 15,
+   "why": "line is not the top-level \"type\" key"
+  },
+  {
+   "how": "dependency_declared",
+   "id": "4eca0f557cce6867",
+   "path": "package.json",
+   "pool": "config_facts_v1.jsonl",
+   "recorded_line": 36,
+   "repo": "nestjs/nest",
+   "sha": "454123b9283a5f742c4232c7692067c085509341",
+   "suggested_line": 160,
+   "why": "line is not an entry of devDependencies or dependencies for this tool"
+  },
+  {
+   "how": "dependency_declared",
+   "id": "732de38d194d3a22",
+   "path": "package.json",
+   "pool": "config_facts_v1.jsonl",
+   "recorded_line": 91,
+   "repo": "payloadcms/payload",
+   "sha": "259d7fd68948b7880b87d635f5d0f0df3f35ef18",
+   "suggested_line": 205,
+   "why": "line is not an entry of devDependencies or dependencies for this tool"
+  },
+  {
+   "how": "ruff_pydocstyle_convention",
+   "id": "44d2aa476aa7160a",
+   "path": "pyproject.toml",
+   "pool": "config_facts_v1.jsonl",
+   "recorded_line": 281,
+   "repo": "pydata/xarray",
+   "sha": "6f4a21cfc73c0a95a5e77c1d1b61a0ed495ef65a",
+   "suggested_line": 337,
+   "why": "line is not the pydocstyle convention"
+  },
+  {
+   "how": "dependency_declared",
+   "id": "b6306993047ec17d",
+   "path": "package.json",
+   "pool": "config_facts_v1.jsonl",
+   "recorded_line": 40,
+   "repo": "remix-run/react-router",
+   "sha": "5d7962ea44fefef43718a6f9e6cce17f4e7e04ab",
+   "suggested_line": 84,
+   "why": "line is not an entry of devDependencies or dependencies for this tool"
+  },
+  {
+   "how": "ruff_pydocstyle_convention",
+   "id": "0988f132172dd504",
+   "path": "pyproject.toml",
+   "pool": "config_facts_v1.jsonl",
+   "recorded_line": 322,
+   "repo": "streamlit/streamlit",
+   "sha": "4a118d330661dbbc311c8056b5df19cab369f08f",
+   "suggested_line": 392,
+   "why": "line is not the pydocstyle convention"
+  },
+  {
+   "how": "dependency_declared",
+   "id": "c7a66496ecda631c",
+   "path": "package.json",
+   "pool": "config_facts_v1.jsonl",
+   "recorded_line": 18,
+   "repo": "trpc/trpc",
+   "sha": "9d111859f314853349f5218fa3e8b8dd1ecf8e84",
+   "suggested_line": 74,
+   "why": "line is not an entry of devDependencies or dependencies for this tool"
+  },
+  {
+   "how": "dependency_declared",
+   "id": "942d38bee25de44d",
+   "path": "package.json",
+   "pool": "config_facts_v1.jsonl",
+   "recorded_line": 29,
+   "repo": "trpc/trpc",
+   "sha": "9d111859f314853349f5218fa3e8b8dd1ecf8e84",
+   "suggested_line": 62,
+   "why": "line is not an entry of devDependencies or dependencies for this tool"
+  },
+  {
+   "how": "ruff_pydocstyle_convention",
+   "id": "0878dfa794e61373",
+   "path": "pyproject.toml",
+   "pool": "config_facts_v1.jsonl",
+   "recorded_line": 302,
+   "repo": "zenml-io/zenml",
+   "sha": "f2a660acccd2d7e698f98f9dd9f396f5946ec931",
+   "suggested_line": 314,
+   "why": "line is not the pydocstyle convention"
+  },
+  {
+   "how": "package_type_field",
+   "id": "8aff556bf9b2c6ae",
+   "path": "package.json",
+   "pool": "config_facts_v2_holdout.jsonl",
+   "recorded_line": 26,
+   "repo": "AlexanderMattTurner/agent-glovebox",
+   "sha": "868c08438cf445a4435c7157bb0f657fa5f38edc",
+   "suggested_line": 34,
+   "why": "line is not the top-level \"type\" key"
+  },
+  {
+   "how": "pyproject_tool_table",
+   "id": "ef7cdbb8c51d6168",
+   "path": "pyproject.toml",
+   "pool": "config_facts_v2_holdout.jsonl",
+   "recorded_line": 82,
+   "repo": "AlexanderMattTurner/agent-glovebox",
+   "sha": "868c08438cf445a4435c7157bb0f657fa5f38edc",
+   "suggested_line": 1021,
+   "why": "line is not a header of the tool's table"
+  },
+  {
+   "how": "pyproject_tool_table",
+   "id": "9c7f25e5fa75d4a9",
+   "path": "pyproject.toml",
+   "pool": "config_facts_v2_holdout.jsonl",
+   "recorded_line": 405,
+   "repo": "EverMind-AI/Raven",
+   "sha": "dc35a0507b90c743fd4eaa0a12a2363b560cee77",
+   "suggested_line": 445,
+   "why": "line is not a header of the tool's table"
+  },
+  {
+   "how": "dependency_declared",
+   "id": "64ffa629c13f1fc0",
+   "path": "package.json",
+   "pool": "config_facts_v2_holdout.jsonl",
+   "recorded_line": 19,
+   "repo": "GD4AI/obsidian-llm-wiki",
+   "sha": "da72986018b71a012c4fc71a7a5cb0bac1b41538",
+   "suggested_line": 53,
+   "why": "line is not an entry of devDependencies or dependencies for this tool"
+  },
+  {
+   "how": "ruff_pydocstyle_convention",
+   "id": "3996373ab085c6fe",
+   "path": "pyproject.toml",
+   "pool": "config_facts_v2_holdout.jsonl",
+   "recorded_line": 115,
+   "repo": "NVIDIA/warp",
+   "sha": "0f61071ddcd2595eab07fcd4d0e99dbd7abf3bf4",
+   "suggested_line": 158,
+   "why": "line is not the pydocstyle convention"
+  },
+  {
+   "how": "dependency_declared",
+   "id": "2c3b2c464831b39b",
+   "path": "package.json",
+   "pool": "config_facts_v2_holdout.jsonl",
+   "recorded_line": 29,
+   "repo": "a-ghorbani/pocketpal-ai",
+   "sha": "c076d8d66f334a3e6288a9fce0e3a21036c3249d",
+   "suggested_line": 139,
+   "why": "line is not an entry of devDependencies or dependencies for this tool"
+  },
+  {
+   "how": "package_type_field",
+   "id": "4225162a01bf9200",
+   "path": "package.json",
+   "pool": "config_facts_v2_holdout.jsonl",
+   "recorded_line": 8,
+   "repo": "avoidwork/filesize.js",
+   "sha": "907199ab348e9afc9843d33b5dc3b3264dab3bbe",
+   "suggested_line": 28,
+   "why": "line is not the top-level \"type\" key"
+  },
+  {
+   "how": "package_type_field",
+   "id": "98ee37fd5c05ddfa",
+   "path": "package.json",
+   "pool": "config_facts_v2_holdout.jsonl",
+   "recorded_line": 14,
+   "repo": "boxlite-ai/boxlite",
+   "sha": "f545bc67f663e8df26e7a4c3af1901ebfc9c7297",
+   "suggested_line": 20,
+   "why": "line is not the top-level \"type\" key"
+  },
+  {
+   "how": "pyproject_tool_table",
+   "id": "476a4671cbad5ced",
+   "path": "pyproject.toml",
+   "pool": "config_facts_v2_holdout.jsonl",
+   "recorded_line": 87,
+   "repo": "cuga-project/cuga-agent",
+   "sha": "b3a68d5a12b78d980856ce1227bc5e5fbc64d0c7",
+   "suggested_line": 123,
+   "why": "line is not a header of the tool's table"
+  },
+  {
+   "how": "package_type_field",
+   "id": "984b6f2d3ff2f779",
+   "path": "package.json",
+   "pool": "config_facts_v2_holdout.jsonl",
+   "recorded_line": 7,
+   "repo": "dfinity/oisy-wallet",
+   "sha": "d7c9ff7bec763b6c174afaf0b05d9e2e6c6e4adb",
+   "suggested_line": 153,
+   "why": "line is not the top-level \"type\" key"
+  },
+  {
+   "how": "black_line_length",
+   "id": "d88656111844df5c",
+   "path": "pyproject.toml",
+   "pool": "config_facts_v2_holdout.jsonl",
+   "recorded_line": 392,
+   "repo": "dlt-hub/dlt",
+   "sha": "e36eae488a18051b6d93651aa877d065f4982304",
+   "suggested_line": 433,
+   "why": "line is not line-length under [tool.black]"
+  },
+  {
+   "how": "dependency_declared",
+   "id": "f228bb6c73282a1f",
+   "path": "package.json",
+   "pool": "config_facts_v2_holdout.jsonl",
+   "recorded_line": 53,
+   "repo": "freeCodeCamp/ui",
+   "sha": "2df8accc4c814961cf3a4fde6fe8010ee0ef165b",
+   "suggested_line": 120,
+   "why": "line is not an entry of devDependencies or dependencies for this tool"
+  },
+  {
+   "how": "package_type_field",
+   "id": "95ea2a934e133816",
+   "path": "package.json",
+   "pool": "config_facts_v2_holdout.jsonl",
+   "recorded_line": 18,
+   "repo": "jabrown93/homebridge-philips-hue-sync-box",
+   "sha": "4aff079082c2ee0ee206e7a8c166f6259fc88bc4",
+   "suggested_line": 33,
+   "why": "line is not the top-level \"type\" key"
+  },
+  {
+   "how": "dependency_declared",
+   "id": "678970d4fc90a2f7",
+   "path": "package.json",
+   "pool": "config_facts_v2_holdout.jsonl",
+   "recorded_line": 43,
+   "repo": "jabrown93/homebridge-philips-hue-sync-box",
+   "sha": "4aff079082c2ee0ee206e7a8c166f6259fc88bc4",
+   "suggested_line": 80,
+   "why": "line is not an entry of devDependencies or dependencies for this tool"
+  },
+  {
+   "how": "dependency_declared",
+   "id": "0e1da9afe9d66d1a",
+   "path": "package.json",
+   "pool": "config_facts_v2_holdout.jsonl",
+   "recorded_line": 54,
+   "repo": "jabrown93/homebridge-philips-hue-sync-box",
+   "sha": "4aff079082c2ee0ee206e7a8c166f6259fc88bc4",
+   "suggested_line": 83,
+   "why": "line is not an entry of devDependencies or dependencies for this tool"
+  },
+  {
+   "how": "package_type_field",
+   "id": "87d228cfd1516759",
+   "path": "package.json",
+   "pool": "config_facts_v2_holdout.jsonl",
+   "recorded_line": 20,
+   "repo": "jango-blockchained/advanced-homeassistant-mcp",
+   "sha": "4cf7e0573a5214a04a7aef68777005fad5f84db3",
+   "suggested_line": 31,
+   "why": "line is not the top-level \"type\" key"
+  },
+  {
+   "how": "dependency_declared",
+   "id": "80f6fdb966c10a3f",
+   "path": "package.json",
+   "pool": "config_facts_v2_holdout.jsonl",
+   "recorded_line": 37,
+   "repo": "microsoft/fluentui-react-native",
+   "sha": "49216e3598c991c81f5663fd82da011a6a588501",
+   "suggested_line": 62,
+   "why": "line is not an entry of devDependencies or dependencies for this tool"
+  },
+  {
+   "how": "ruff_pydocstyle_convention",
+   "id": "c4202e21964b07ee",
+   "path": "pyproject.toml",
+   "pool": "config_facts_v2_holdout.jsonl",
+   "recorded_line": 167,
+   "repo": "mitodl/ol-infrastructure",
+   "sha": "da10cf8a50753155625a8d1e35f448b036282184",
+   "suggested_line": 224,
+   "why": "line is not the pydocstyle convention"
+  },
+  {
+   "how": "package_type_field",
+   "id": "51b5e5ed1f72964e",
+   "path": "package.json",
+   "pool": "config_facts_v2_holdout.jsonl",
+   "recorded_line": 20,
+   "repo": "moritzwilksch/diffle",
+   "sha": "865e8f75d874c2f22e0df53ea7b92d4c91c61622",
+   "suggested_line": 23,
+   "why": "line is not the top-level \"type\" key"
+  },
+  {
+   "how": "dependency_declared",
+   "id": "1373979d98a7801f",
+   "path": "package.json",
+   "pool": "config_facts_v2_holdout.jsonl",
+   "recorded_line": 28,
+   "repo": "moritzwilksch/diffle",
+   "sha": "865e8f75d874c2f22e0df53ea7b92d4c91c61622",
+   "suggested_line": 70,
+   "why": "line is not an entry of devDependencies or dependencies for this tool"
+  },
+  {
+   "how": "dependency_declared",
+   "id": "4881efe3795b8ccc",
+   "path": "package.json",
+   "pool": "config_facts_v2_holdout.jsonl",
+   "recorded_line": 29,
+   "repo": "moritzwilksch/diffle",
+   "sha": "865e8f75d874c2f22e0df53ea7b92d4c91c61622",
+   "suggested_line": 69,
+   "why": "line is not an entry of devDependencies or dependencies for this tool"
+  },
+  {
+   "how": "ruff_pydocstyle_convention",
+   "id": "9c7728cc49be091d",
+   "path": "pyproject.toml",
+   "pool": "config_facts_v2_holdout.jsonl",
+   "recorded_line": 330,
+   "repo": "ogx-ai/ogx",
+   "sha": "89e05db1d14e7c7dc078bd43598071808321ef24",
+   "suggested_line": 343,
+   "why": "line is not the pydocstyle convention"
+  },
+  {
+   "how": "package_type_field",
+   "id": "4f2687f8e6d73a84",
+   "path": "package.json",
+   "pool": "config_facts_v2_holdout.jsonl",
+   "recorded_line": 8,
+   "repo": "openwallet-foundation/credo-ts",
+   "sha": "0aa231d6d90c791af3ee7d420763289de1b22571",
+   "suggested_line": 10,
+   "why": "line is not the top-level \"type\" key"
+  },
+  {
+   "how": "dependency_declared",
+   "id": "bcccf2d220ebbfaa",
+   "path": "package.json",
+   "pool": "config_facts_v2_holdout.jsonl",
+   "recorded_line": 23,
+   "repo": "openwallet-foundation/credo-ts",
+   "sha": "0aa231d6d90c791af3ee7d420763289de1b22571",
+   "suggested_line": 71,
+   "why": "line is not an entry of devDependencies or dependencies for this tool"
+  },
+  {
+   "how": "pyproject_tool_table",
+   "id": "4bf0ef7618b1a455",
+   "path": "pyproject.toml",
+   "pool": "config_facts_v2_holdout.jsonl",
+   "recorded_line": 593,
+   "repo": "royerlab/luxar",
+   "sha": "30c1b902dfbc4003b24b6d47822c09a1dafeec09",
+   "suggested_line": 1197,
+   "why": "line is not a header of the tool's table"
+  },
+  {
+   "how": "package_type_field",
+   "id": "b4b7f5275550f4e5",
+   "path": "package.json",
+   "pool": "config_facts_v2_holdout.jsonl",
+   "recorded_line": 8,
+   "repo": "siemens/element",
+   "sha": "58e165ce37f4b9cfe73b2913faf4151e70309834",
+   "suggested_line": 15,
+   "why": "line is not the top-level \"type\" key"
+  },
+  {
+   "how": "dependency_declared",
+   "id": "36b3e532d5394738",
+   "path": "package.json",
+   "pool": "config_facts_v2_holdout.jsonl",
+   "recorded_line": 25,
+   "repo": "siemens/element",
+   "sha": "58e165ce37f4b9cfe73b2913faf4151e70309834",
+   "suggested_line": 176,
+   "why": "line is not an entry of devDependencies or dependencies for this tool"
+  },
+  {
+   "how": "package_type_field",
+   "id": "4c7b9a2068ef2548",
+   "path": "package.json",
+   "pool": "config_facts_v2_holdout.jsonl",
+   "recorded_line": 7,
+   "repo": "silverwind/uppie",
+   "sha": "6c79d5b0697827e913d29fd834a531b8b4e1280c",
+   "suggested_line": 21,
+   "why": "line is not the top-level \"type\" key"
+  }
+ ],
+ "missing_source": [],
+ "ok": 536,
+ "pools": [
+  "config_facts_v1.jsonl",
+  "config_facts_v2_holdout.jsonl"
+ ],
+ "unauditable": []
+}
