@@ -6,6 +6,9 @@ step limits and observation caps independent of any model response.
 """
 from __future__ import annotations
 import json
+import math
+import re
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,6 +19,53 @@ from .identity import safe_relative_path
 from .models import ContextCapsule, WorkerResult
 from .ports import AgentWorker
 from .tools import RegisteredTool, ToolRegistry
+
+
+UNTRUSTED_BEGIN = "<<<UNTRUSTED_TOOL_OUTPUT>>>"
+UNTRUSTED_END = "<<<END_UNTRUSTED_TOOL_OUTPUT>>>"
+_MARKER_RUN = re.compile(r"<{3,}|>{3,}")
+_TOOL_PREFIX = re.compile(r'^\{"tool": "([A-Za-z0-9_.:-]{1,64})"')
+
+
+class RepeatedCallError(RuntimeError):
+    """The planner proposed the same tool call too many times in a row."""
+
+
+class AgentDeadlineExceeded(RuntimeError):
+    """The loop's own wall-clock deadline passed between steps."""
+
+
+def neutralise_markers(text: str) -> str:
+    """Break up any run of three or more ``<`` or ``>`` so content cannot forge a marker."""
+    return _MARKER_RUN.sub(lambda m: " ".join(m.group(0)), text)
+
+
+def render_untrusted_observation(observation: str, allowed_tools: frozenset[str] | set[str],
+                                 limit: int = 3000) -> str:
+    """Present one stored observation to a model as marked, escaped, visibly cut data.
+
+    The tool name sits outside the markers and is shown only when it is one of
+    ``allowed_tools``. The content between the markers is the stored observation
+    with marker-like runs neutralised and cut to ``limit`` characters. A note
+    after the closing marker says when the content was cut, either here or by
+    the loop's own cap (a cut observation is no longer valid JSON). The stored
+    observation, its hash and the event ledger are not changed by this.
+    """
+    text = str(observation)
+    match = _TOOL_PREFIX.match(text)
+    tool = match.group(1) if match and match.group(1) in allowed_tools else "unknown"
+    try:
+        json.loads(text)
+        cut_by_loop = False
+    except ValueError:
+        cut_by_loop = True
+    body = neutralise_markers(text)
+    cut_here = len(body) > limit
+    body = body[:limit]
+    note = ""
+    if cut_here or cut_by_loop:
+        note = f"\n[observation was cut, showing at most {limit} characters, so it may end mid-value]"
+    return f"tool: {tool}\n{UNTRUSTED_BEGIN}\n{body}\n{UNTRUSTED_END}{note}"
 
 
 @dataclass(frozen=True)
@@ -54,6 +104,14 @@ class BoundedReadOnlyAgent(AgentWorker):
         allowed_tools: Explicit capability names allowed for this run.
         max_steps: Hard upper bound on tool calls, from 1 to 25.
         max_observation_chars: Per-result cap before returning to planner.
+        max_identical_calls: How many times in a row the same tool and
+            arguments may run, from 1 to 25. The next identical proposal
+            raises ``RepeatedCallError`` before the tool runs. Default 3.
+        deadline_seconds: Optional wall-clock limit for the whole loop,
+            checked before each planner call and before each tool call. It
+            cannot interrupt a planner or tool call that is already running.
+            Off by default. Raises ``AgentDeadlineExceeded``.
+        clock: Monotonic clock, replaceable in tests.
 
     Side effects:
         None by default. Every call uses ``allow_writes=False`` regardless
@@ -62,43 +120,86 @@ class BoundedReadOnlyAgent(AgentWorker):
 
     def __init__(self, planner: Planner, tools: ToolRegistry, allowed_tools: set[str],
                  max_steps: int = 5, max_observation_chars: int = 3000,
-                 on_event: Callable[[str, dict[str, Any]], None] | None = None):
+                 on_event: Callable[[str, dict[str, Any]], None] | None = None,
+                 max_identical_calls: int = 3, deadline_seconds: float | None = None,
+                 clock: Callable[[], float] = time.monotonic):
         if not 1 <= max_steps <= 25 or not 100 <= max_observation_chars <= 20000:
             raise ValueError("Unsafe or invalid agent loop limits")
+        if isinstance(max_identical_calls, bool) or not isinstance(max_identical_calls, int) \
+                or not 1 <= max_identical_calls <= 25:
+            raise ValueError("max_identical_calls must be an integer from 1 to 25")
+        if deadline_seconds is not None and (isinstance(deadline_seconds, bool)
+                or not isinstance(deadline_seconds, (int, float))
+                or not math.isfinite(deadline_seconds) or not 0 < deadline_seconds <= 86400):
+            raise ValueError("deadline_seconds must be greater than 0 and at most 86400")
         self.planner = planner
         self.tools = tools
         self.allowed_tools = frozenset(allowed_tools)
         self.max_steps = max_steps
         self.max_observation_chars = max_observation_chars
         self.on_event = on_event
+        self.max_identical_calls = max_identical_calls
+        self.deadline_seconds = deadline_seconds
+        self.clock = clock
+
+    def _stop(self, reason: str, steps: int, error: RuntimeError, name: str | None = None) -> None:
+        """Record why the loop stopped, without arguments or output, then raise."""
+        if self.on_event:
+            payload: dict[str, Any] = {"reason": reason, "steps_run": steps}
+            if name is not None:
+                payload["name"] = name
+            self.on_event("loop_stopped", payload)
+        raise error
 
     def run(self, task: str, context: ContextCapsule) -> WorkerResult:
         """Execute a bounded loop and return observations without claiming verification.
 
         Raises:
             ToolPermissionDenied: The planner selected a disallowed tool.
+            RepeatedCallError: The same call was proposed more than
+                ``max_identical_calls`` times in a row. Subclass of RuntimeError.
+            AgentDeadlineExceeded: ``deadline_seconds`` passed. Subclass of RuntimeError.
             RuntimeError: Maximum steps were exhausted without a Finish.
         """
         observations: list[str] = []
-        for _ in range(self.max_steps):
+        started = self.clock()
+        last_call: tuple[str, str] | None = None
+        streak = 0
+
+        def past_deadline() -> bool:
+            return self.deadline_seconds is not None and self.clock() - started > self.deadline_seconds
+
+        for step in range(self.max_steps):
+            if past_deadline():
+                self._stop("deadline", step, AgentDeadlineExceeded("Agent loop deadline exceeded"))
             action = self.planner.next_action(task, context, tuple(observations))
             if isinstance(action, Finish):
                 return WorkerResult("prepared", action.message, tuple(observations))
             if not isinstance(action, ToolAction):
                 raise TypeError("Planner output must be ToolAction or Finish")
+            arguments_json = json.dumps(action.arguments, sort_keys=True)
+            call = (action.name, arguments_json)
+            streak = streak + 1 if call == last_call else 1
+            last_call = call
+            if streak > self.max_identical_calls:
+                self._stop("repeated_call", step, RepeatedCallError(
+                    f"Planner repeated the same tool call more than {self.max_identical_calls} times"), action.name)
+            if past_deadline():
+                self._stop("deadline", step, AgentDeadlineExceeded("Agent loop deadline exceeded"))
             if self.on_event:
                 # Never store raw arguments or tool output in the global event ledger.
                 self.on_event("tool_invocation", {"name": action.name,
                     "argument_keys": sorted(action.arguments),
-                    "arguments_sha256": hashlib.sha256(json.dumps(action.arguments, sort_keys=True).encode()).hexdigest()})
+                    "arguments_sha256": hashlib.sha256(arguments_json.encode()).hexdigest()})
             result = self.tools.call(action.name, action.arguments, set(self.allowed_tools), allow_writes=False)
-            rendered = json.dumps({"tool": action.name, "result": result}, sort_keys=True)
+            # The tool name comes first so a cut observation still shows which tool ran.
+            rendered = '{"tool": ' + json.dumps(action.name) + ', "result": ' + json.dumps(result, sort_keys=True) + "}"
             observation = rendered[:self.max_observation_chars]
             observations.append(observation)
             if self.on_event:
                 self.on_event("tool_observation", {"name": action.name, "size": len(observation),
                     "sha256": hashlib.sha256(observation.encode()).hexdigest(), "truncated": len(rendered) > len(observation)})
-        raise RuntimeError("Agent loop exhausted its tool-step budget")
+        self._stop("step_budget", self.max_steps, RuntimeError("Agent loop exhausted its tool-step budget"))
 
 
 _EXCLUDED = {".git", ".decisionbound", "node_modules", ".venv", "__pycache__"}
