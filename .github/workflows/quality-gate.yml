@@ -30,7 +30,7 @@ jobs:
           PR_BODY: ${{ github.event.pull_request.body }}
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
         run: python scripts/check_attribution.py
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
       - name: Install test, web, documentation, release and MCP dependencies
@@ -57,7 +57,7 @@ jobs:
       - name: Verify reproducible release packages
         run: python scripts/release_roundtrip.py
       - name: Retain candidate artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: verified-wheel
           path: dist/*.whl
