@@ -100,6 +100,10 @@ def check(errata: list[dict], cases: list[dict], clones: Path | None) -> list[st
     """Return problems. Offline checks always run, hash checks need clones."""
     problems = []
     want = {(c["case_id"], p["path"], p["line_start"], p["line_end"]) for c in cases for p in unhashed_line_pointers(c)}
+    origin = {}  # what each record must say about the pointer it covers
+    for c in cases:
+        for p in unhashed_line_pointers(c):
+            origin[(c["case_id"], p["path"], p["line_start"], p["line_end"])] = (c["target"]["repo"], c["target"]["sha"], p["kind"])
     have = {(r["case_id"], r["path"], r["recorded"]["line_start"], r["recorded"]["line_end"]) for r in errata}
     for k in sorted(want - have):
         problems.append(f"UNLISTED unhashed pointer {k}")
@@ -109,6 +113,9 @@ def check(errata: list[dict], cases: list[dict], clones: Path | None) -> list[st
         problems.append("DUPLICATE erratum records")
     for r in errata:
         cid, rec, fix = r["case_id"], r["recorded"], r["corrected"]
+        key = (cid, r["path"], rec["line_start"], rec["line_end"])
+        if key in origin and origin[key] != (r["repo"], r["sha"], r["kind"]):
+            problems.append(f"ORIGIN {cid} {r['path']} repo, sha or kind differs from the case pointer")
         moved = (rec["line_start"], rec["line_end"]) != (fix["line_start"], fix["line_end"])
         if (r["status"] == "wrong_location") != moved:
             problems.append(f"STATUS {cid} {r['path']} disagrees with its corrected lines")

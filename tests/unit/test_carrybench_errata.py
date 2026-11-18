@@ -23,6 +23,22 @@ MINER = BENCH / "real_v1" / "tools" / "mine_decisions.py"
 HEX64 = "0123456789abcdef"
 
 
+# Hashes of the pinned source lines, recomputed from the pinned sources by the author and by an independent reviewer.
+# Pinning them here means a corrupted erratum fails offline, where the pinned clones are not available.
+PINNED = {
+    "cbh-001": ("9fa5cfc2fd8374f3b485f96af67ef23d6dbcfefbdb63cdda3ca5fa9f9233bf48", "9fa5cfc2fd8374f3b485f96af67ef23d6dbcfefbdb63cdda3ca5fa9f9233bf48"),
+    "cbh-002": ("e99e9e0f22b077eeb82b7883fe0e6f19d6fbfed0be95330dff69404a375b9db0", "e99e9e0f22b077eeb82b7883fe0e6f19d6fbfed0be95330dff69404a375b9db0"),
+    "cbh-006": ("1c21e7109507d03db11350899bdad97e05e89f7020ca2200e9a8b32bddb7d936", "059d1c7bde504bc87cf4b2441ea58282b65f5f6707a1db7268517fa3fa4891a3"),
+    "cbh-010": ("b76ab4e3ac97898b89f31940f1e00b663ec0c7e95f8ab4978b728b3dcddfb371", "b76ab4e3ac97898b89f31940f1e00b663ec0c7e95f8ab4978b728b3dcddfb371"),
+    "cbh-013": ("57ab93f91c352fc3c558bc5039512c322c78063e917d62b44c825082a5a1e5fb", "57ab93f91c352fc3c558bc5039512c322c78063e917d62b44c825082a5a1e5fb"),
+    "cbh-017": ("dc652e4e54c7bf0190f1b4e180bd2b8b808562716bea534fa9ce2aaec8418f93", "dc652e4e54c7bf0190f1b4e180bd2b8b808562716bea534fa9ce2aaec8418f93"),
+    "cbh-022": ("253d190948d085b720999fa0901cc8d5ce341ed729eab98fef4a2ebd083476ad", "253d190948d085b720999fa0901cc8d5ce341ed729eab98fef4a2ebd083476ad"),
+    "cbh-029": ("1dd26c846eb63fc62c77c75b94f1d9bc17d572f4e2e5fa019cf921631703de06", "1dd26c846eb63fc62c77c75b94f1d9bc17d572f4e2e5fa019cf921631703de06"),
+    "cbh-036": ("eaea8faee78a8f384d8201a4ece2a9d8fffc85d4c361ef4ff77c7828d371e03b", "eaea8faee78a8f384d8201a4ece2a9d8fffc85d4c361ef4ff77c7828d371e03b"),
+    "cbh-039": ("3e146e2af09bd19163f856a82d7e15bd3ab14b63b46702cb175d7decfef5e6b5", "3871b85b5df6800a819e98a52d8116da640453342fb8d4ca35fbf32a42cfece1"),
+}
+
+
 def load_tool(name, path):
     spec = importlib.util.spec_from_file_location(name, path)
     mod = importlib.util.module_from_spec(spec)
@@ -62,6 +78,11 @@ def test_erratum_flags_only_the_two_pointers_that_are_off():
     wrong = {(r["case_id"], r["recorded"]["line_start"], r["corrected"]["line_start"], r["corrected"]["line_end"])
              for r in read(ERRATA) if r["status"] == "wrong_location"}
     assert wrong == {("cbh-006", 330, 342, 343), ("cbh-039", 29, 69, 69)}
+
+
+def test_erratum_hashes_equal_the_pinned_values():
+    got = {r["case_id"]: (r["corrected"]["text_sha256"], r["recorded"]["text_sha256"]) for r in read(ERRATA)}
+    assert got == PINNED
 
 
 def test_erratum_records_hold_hashes_and_no_third_party_text():
@@ -184,14 +205,15 @@ def _verify(tmp_path, case, clones, *flags):
 def test_verifier_default_still_accepts_a_null_hash_and_counts_it(tmp_path, repo):
     clones, sha = repo
     rc, out, _ = _verify(tmp_path, _case(sha, 1, 1, None), clones)  # line 1 is not the convention, and it passes
-    assert rc == 0 and out["mismatches"] == 0 and out["unhashed_line_pointers"] == 1
+    assert rc == 0 and out["mismatches"] == 0 and out["unhashed_line_pointers"] == 1 and out["unhashed_rejected"] == 0
 
 
 def test_verifier_require_hash_fails_on_a_null_hash_with_lines(tmp_path, repo):
     clones, sha = repo
     for start in (1, 4):  # a wrong line and a right line both fail without a hash
         rc, out, err = _verify(tmp_path, _case(sha, start, start, None), clones, "--require-hash")
-        assert rc == 1 and out["mismatches"] == 1 and "UNHASHED cbh-900" in err
+        assert rc == 1 and out["unhashed_rejected"] == 1 and "UNHASHED cbh-900" in err
+        assert out["mismatches"] == 0  # a rejected null hash is not a hash mismatch
 
 
 def test_verifier_require_hash_passes_a_correct_hash_and_fails_a_wrong_one(tmp_path, repo):
@@ -238,6 +260,42 @@ def test_build_refuses_a_span_outside_the_file(tmp_path, repo):
     clones, sha = repo
     with pytest.raises(SystemExit):
         errata_tool.build([_case(sha, 99, 99, None)], clones)
+
+
+def test_require_hash_also_rejects_an_unhashed_source_pointer(tmp_path, repo):
+    clones, sha = repo
+    case = _case(sha, 4, 4, miner.line_span_hash(CONFIG, 4, 4))
+    case["source"].update(path="pyproject.toml", line_start=4, line_end=4, text_sha256=None)
+    assert _verify(tmp_path, case, clones)[0] == 0
+    rc, out, err = _verify(tmp_path, case, clones, "--require-hash")
+    assert rc == 1 and out["unhashed_rejected"] == 1 and "UNHASHED cbh-900 source" in err
+
+
+def test_unhashed_line_pointers_includes_the_source_pointer():
+    case = _case("a" * 40, 4, 4, "f" * 64)
+    case["source"].update(path="AGENTS.md", line_start=8, line_end=8, text_sha256=None)
+    assert [p["path"] for p in errata_tool.unhashed_line_pointers(case)] == ["AGENTS.md"]
+
+
+def test_check_reports_a_record_whose_repo_sha_or_kind_differs_from_its_case():
+    cases, errata = _data()
+    for field, value in (("repo", "other/repo"), ("sha", "b" * 40), ("kind", "config_fact:other")):
+        bad = copy.deepcopy(errata)
+        bad[0][field] = value
+        assert any(p.startswith("ORIGIN") for p in errata_tool.check(bad, cases, None)), field
+
+
+def test_build_lists_a_pointer_once_when_the_case_is_in_several_files(tmp_path, repo):
+    clones, sha = repo
+    case = _case(sha, 4, 4, None)
+    assert len(errata_tool.build([case, copy.deepcopy(case), copy.deepcopy(case)], clones)) == 1
+
+
+def test_span_hash_refuses_line_zero_a_reversed_span_and_a_span_past_the_end(tmp_path, repo):
+    clones, sha = repo
+    span = lambda start, end: errata_tool._span_hash(clones, "own/proj", sha, "pyproject.toml", start, end)
+    assert span(1, 1) == miner.line_span_hash(CONFIG, 1, 1)
+    assert span(0, 1) is None and span(4, 3) is None and span(1, 6) is None
 
 
 # ----------------------------------------------------------------- pinned clones

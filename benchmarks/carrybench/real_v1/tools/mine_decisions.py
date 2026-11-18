@@ -937,7 +937,7 @@ def cmd_baseline(args: argparse.Namespace) -> int:
 def cmd_verify(args: argparse.Namespace) -> int:
     """Re-hash every pointer in a case file against the pinned clones."""
     clones = Path(args.clones_dir)
-    bad = total = unhashed = 0
+    bad = total = unhashed = rejected = 0
     for line in Path(args.cases).read_text(encoding="utf-8").splitlines():
         if not line.strip():
             continue
@@ -967,13 +967,14 @@ def cmd_verify(args: argparse.Namespace) -> int:
                 if ok and p.get("text_sha256") is None:  # a null hash accepts any line, so a wrong line number passes
                     unhashed += 1
                     if args.require_hash:
-                        bad += 1
+                        rejected += 1
                         print(f"UNHASHED {c['case_id']} {role} {repo} {p.get('path')}:{p.get('line_start')}", file=sys.stderr)
             if not ok:
                 bad += 1
                 print(f"MISMATCH {c['case_id']} {role} {repo} {p.get('path')}:{p.get('line_start')}", file=sys.stderr)
-    print(json.dumps({"pointers": total, "mismatches": bad, "unhashed_line_pointers": unhashed}))
-    return 1 if bad else 0
+    print(json.dumps({"pointers": total, "mismatches": bad, "unhashed_line_pointers": unhashed,
+                      "unhashed_rejected": rejected}))
+    return 1 if bad or rejected else 0
 
 
 def main(argv: list[str] | None = None) -> int:
