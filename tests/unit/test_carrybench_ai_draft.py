@@ -29,7 +29,10 @@ def test_file_hash_is_pinned_in_the_readme():
     readme = (FOLDER / "README.md").read_text(encoding="utf-8")
     pinned = re.search(r"\| SHA-256 \| `([0-9a-f]{64})` \|", readme)
     assert pinned, "README must record the SHA-256"
-    assert hashlib.sha256(DRAFT.read_bytes()).hexdigest() == pinned.group(1)
+    raw = DRAFT.read_bytes()
+    assert b"\r" not in raw.replace(b"\r\n", b"")  # the committed file has LF only
+    # a Windows checkout may convert LF to CRLF, which is not a change to the file
+    assert hashlib.sha256(raw.replace(b"\r\n", b"\n")).hexdigest() == pinned.group(1)
 
 
 def test_format_is_valid_but_every_marker_says_not_human():
