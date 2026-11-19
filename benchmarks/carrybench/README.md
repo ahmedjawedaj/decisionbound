@@ -36,6 +36,8 @@ python3 -I tools/score_predictions.py --cases cases_v1.jsonl \
 python3 -I verifiers/run_verifiers.py
 ```
 
+The mined config-fact pools have an audit of their line pointers in `POOL_LINE_AUDIT.md`: 48 of 584 name the wrong line, none of them used by a scored case except the two already in the erratum.
+
 To rebuild the evidence from source, `tools/fetch_pins.py` clones the pinned repositories and `tools/mine_decisions.py verify` re-hashes every pointer. Add `--require-hash` to fail a pointer that names lines but has no hash, which a plain `verify` accepts.
 
 ## Score your own system
