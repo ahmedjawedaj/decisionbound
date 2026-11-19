@@ -49,6 +49,10 @@ Raw labels are kept in `excluded_v2_holdout.jsonl`. Nothing was adjudicated.
 
 These feed a guide v1.2 for new cases only. Nothing here was changed in this set.
 
+## A further AI draft from another model family
+
+One more AI label set exists for these 40 cases, made from the packet paraphrases only, without opening the pinned files. It is filed apart in `annotations/ai_other_family/` and is not part of the frozen scored set. It agrees with the frozen scored labels on 27 of 35 cases (kappa 0.69). See `annotations/ai_other_family/README.md` for provenance, limits and the eight disagreements. It is not a human label set.
+
 ## Known data issue
 
 In cbh-006 the config pointer names `pyproject.toml` line 330, but the Google pydocstyle setting sits at lines 342 and 343. Line 330 shows an unrelated ignore entry. The config fact carries no hash, so the verifier cannot catch this. Both annotators read the right lines and agree on the label. The pointer is left unchanged so that the frozen set matches what the annotators saw. Fix it in a later revision with a version bump. Issue 21 audited all ten pointers of this kind. `errata_v2_holdout_v1.jsonl` records the hash of the right lines for cbh-006 and a second off pointer, cbh-039 (line 29 is the `format` script and the `oxfmt` dependency is at line 69). Neither changes a label.
