@@ -38,6 +38,7 @@ def test_format_is_valid_but_every_marker_says_not_human():
     header = _header(DRAFT)
     assert header["annotator_id"] == "gpt6_ai_draft"
     assert "not human" in header["background"] and header["guide"] == "v1.1"
+    assert header["saw_ai_labels"] is False  # the README reports this self statement
     rows = _rows(DRAFT)
     assert len(rows) == 40
     for row in rows.values():
@@ -49,7 +50,8 @@ def test_frozen_labels_are_untouched_by_the_draft_and_it_is_not_in_the_human_pac
     out = tmp_path / "p"
     names = packet.build(out)
     assert not any("ai_other_family" in n or "gpt6" in n for n in names)
-    text = "".join((out / n).read_text(encoding="utf-8") for n in names if n.endswith((".jsonl", ".md", ".csv")))
+    assert not any(n.endswith("README.md") and "AI draft labels" in (out / n).read_text(encoding="utf-8") for n in names)
+    text = "".join((out / n).read_bytes().decode("utf-8", "replace") for n in names)
     for row in _rows(DRAFT).values():
         assert row["rationale"] not in text
     scored = cmp.load_cases(ROOT / "cases_v2_holdout_v1.jsonl")
@@ -65,7 +67,7 @@ def test_readme_numbers_are_recomputed_from_the_files():
         frozen = _rows(ROOT / "annotations" / f"labels_{name}_v1_1.jsonl")
         s = cmp.summarise([(frozen[c]["label"], draft[c]["label"]) for c in sorted(frozen)])
         assert (s["n"], s["agree_four_way"], f"{s['kappa_four_way']:.2f}") == (40, agree, kappa)
-        assert f"| Annotator {name}, all 40 cases | 40 | {agree}/40 ({agree * 100 // 40}%) | {kappa} |" in readme
+        assert f"| Annotator {name}, all 40 cases | 40 | {agree}/40 ({agree / 40 * 100:.1f}%) | {kappa} |" in readme
     scored = cmp.load_cases(ROOT / "cases_v2_holdout_v1.jsonl")
     s = cmp.summarise([(scored[c]["label"], draft[c]["label"]) for c in sorted(scored)])
     assert (s["n"], s["agree_four_way"], f"{s['kappa_four_way']:.2f}") == (35, 27, "0.69")
@@ -81,17 +83,19 @@ def test_disagreement_table_matches_the_files():
     actual = {c: (scored[c]["label"], draft[c]["label"]) for c in scored if scored[c]["label"] != draft[c]["label"]}
     table = {m[0]: (m[1], m[2]) for m in re.findall(r"^\| (cbh-\d{3}) \| (\w+) \| (\w+) \|", readme, re.M)}
     assert table == actual and len(actual) == 8
-    # the README says five of the eight sit under ambiguity 1, 4 or 5 of the frozen report
+    # the README says three of the eight sit under ambiguity 4 or 5 of the frozen report
     report = (ROOT / "AGREEMENT_REPORT.md").read_text(encoding="utf-8")
     listed: dict[int, set[str]] = {}
     for line in report.splitlines():
         m = re.match(r"^([1-5])\. .*?\(cbh-(\d{3})((?:, \d{3})*)\)", line)
         if m:
             listed[int(m.group(1))] = {"cbh-" + n for n in [m.group(2), *re.findall(r"\d{3}", m.group(3))]}
-    claimed = {1: {"cbh-001", "cbh-021"}, 4: {"cbh-003", "cbh-011"}, 5: {"cbh-020"}}
+    claimed = {4: {"cbh-003", "cbh-011"}, 5: {"cbh-020"}}
     for number, cases in claimed.items():
         assert cases <= listed[number] and cases <= set(actual), number
-    assert "Five of the eight (cbh-001, 003, 011, 020 and 021)" in readme
+    assert {"cbh-001", "cbh-021"} <= listed[1] and {"cbh-001", "cbh-021"} <= set(actual)
+    assert "Three of the eight (cbh-003, 011 and 020)" in readme
+    assert "which lists no cases" in readme and not any(c in listed.get(2, set()) for c in actual)
 
 
 def test_label_counts_in_readme():
@@ -106,3 +110,29 @@ def test_label_counts_in_readme():
     assert f"Draft on all 40 cases: {fmt(Counter(r['label'] for r in draft.values()))}." in readme
     assert f"Draft on the 35 scored cases: {fmt(Counter(draft[c]['label'] for c in scored))}." in readme
     assert f"Frozen scored labels: {fmt(Counter(r['label'] for r in scored.values()))}." in readme
+
+
+def test_other_documents_and_prose_claims_agree_with_the_files():
+    readme = (FOLDER / "README.md").read_text(encoding="utf-8")
+    report = (ROOT / "AGREEMENT_REPORT.md").read_text(encoding="utf-8")
+    changelog = (ROOT.parents[2] / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert "agrees with the frozen scored labels on 27 of 35 cases (kappa 0.69)" in report
+    assert "It is not a human label set." in report and "annotations/ai_other_family/README.md" in report
+    entry = next(line for line in changelog.splitlines() if "extra AI label draft" in line)
+    for phrase in ("27 of 35 cases (kappa 0.69, carry versus stop 28 of 33)", "annotator A on 30 of 40", "with B on 29 of 40",
+                   "Three of its eight disagreements (cbh-003, 011, 020)", "must not be merged with human labels"):
+        assert phrase in entry, phrase
+    # frozen pair figures quoted in the README
+    a, b = (_rows(ROOT / "annotations" / f"labels_{n}_v1_1.jsonl") for n in "AB")
+    s = cmp.summarise([(a[c]["label"], b[c]["label"]) for c in sorted(a)])
+    assert (s["agree_four_way"], f"{s['kappa_four_way']:.2f}") == (35, "0.83")
+    assert "35 of 40 (0.875, kappa 0.83)" in readme
+    # the draft's labels on the contested cases
+    draft = _rows(DRAFT)
+    for case, label in (("cbh-017", "apply"), ("cbh-025", "abstain"), ("cbh-028", "abstain"), ("cbh-031", "escalate"), ("cbh-034", "abstain")):
+        assert draft[case]["label"] == label
+    assert "apply (cbh-017), abstain (cbh-025, 028 and 034) and escalate (cbh-031)" in readme
+    # the rules and the not-human framing
+    for phrase in ("It is an AI draft. It is not a human label set", "Never merge it with the human labels", "must set `saw_ai_labels` to true",
+                   "Passing the checker does not make it a human file"):
+        assert phrase in readme, phrase
