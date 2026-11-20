@@ -238,7 +238,7 @@ jobs:
           python-version: '3.12'
       - name: Require a real VSIX that contains the extension manifest and entry
         run: python scripts/require_executed.py vsix --source-package apps/vscode/package.json apps/vscode/dist/decisionbound-local.vsix
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@v7.0.2
         with:
           name: decisionbound-local-vsix
           path: apps/vscode/dist/decisionbound-local.vsix
