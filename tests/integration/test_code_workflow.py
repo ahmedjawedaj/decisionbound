@@ -247,13 +247,9 @@ def test_selected_file_is_transmitted_only_to_explicit_proposer(project):
 
 def test_docker_simulated_receipt_positive_branch(project, monkeypatch):
     from decisionbound.code_sandbox import DockerTestRunner
-    import subprocess
-    actual_run = subprocess.run
-    def fake_docker(argv, **kwargs):
-        if argv[0] == 'docker':
-            return subprocess.CompletedProcess(argv, 0, b'All assertions passed', b'')
-        return actual_run(argv, **kwargs)
-    monkeypatch.setattr('decisionbound.code_sandbox.subprocess.run', fake_docker)
+    from tests.docker_fakes import cli_result
+    monkeypatch.setattr('decisionbound.code_sandbox._run_cli',
+                        lambda argv, env, timeout: cli_result(0, b'All assertions passed'))
     # This only tests the host receipt control flow; no container ran.
     result = execute(project, runner=DockerTestRunner('python:3.12'),
                      test_commands=(('python', '-c', 'assert 1 + 1 == 2'),))

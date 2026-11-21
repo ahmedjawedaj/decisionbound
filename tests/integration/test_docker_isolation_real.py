@@ -186,6 +186,19 @@ def test_a_command_that_runs_past_its_timeout_is_killed_and_its_container_remove
     assert listed.stdout.strip() == "", "the timed out container was left behind"
 
 
+def test_a_command_that_prints_without_limit_is_stopped_and_its_container_removed(tmp_path):
+    import hashlib
+    workspace = _workspace(tmp_path)
+    flood = "import sys\nchunk = b'x' * 65536\nwhile True: sys.stdout.buffer.write(chunk)\n"
+    command = ("python", "-c", flood)
+    outcome = DockerTestRunner(IMAGE).run(workspace, command, 60)
+    assert outcome.output_truncated is True and outcome.exit_code is None and outcome.timed_out is False
+    name = "dbound-" + workspace.run_id[5:] + "-" + hashlib.sha256("\0".join(command).encode()).hexdigest()[:8]
+    listed = subprocess.run(["docker", "ps", "-a", "--filter", f"name={name}", "--format", "{{.Names}}"],
+                            capture_output=True, text=True, timeout=30)
+    assert listed.stdout.strip() == "", "the container that printed without limit was left behind"
+
+
 CPU_QUOTA = (
     "import sys\n"
     "try:\n"

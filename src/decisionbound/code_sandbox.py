@@ -9,9 +9,11 @@ from __future__ import annotations
 import hashlib
 import os
 import subprocess
+import threading
 import time
 import re
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from .code_models import TestOutcome, Workspace
 from .code_ports import IsolatedTestRunner
@@ -19,6 +21,108 @@ from .code_ports import IsolatedTestRunner
 
 def _hash(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
+
+
+# A test that prints without limit must not fill the host. The Docker CLI's output is hashed as it
+# arrives and never stored. Past OUTPUT_FLAG_BYTES the receipt is flagged as truncated, which the
+# workflow treats as a failed test. Past OUTPUT_HARD_CAP_BYTES (both streams together) the run is
+# stopped and its container removed.
+OUTPUT_FLAG_BYTES = 128_000
+OUTPUT_HARD_CAP_BYTES = 4 * 1024 * 1024
+_READ_CHUNK = 65536
+_JOIN_SECONDS = 5.0
+
+
+@dataclass(frozen=True)
+class _CliResult:
+    """What one bounded run of the container CLI produced. Output is represented by hashes only."""
+    returncode: int | None
+    stdout_sha256: str
+    stderr_sha256: str
+    total_bytes: int
+    timed_out: bool = False
+    over_cap: bool = False
+    drained: bool = True
+
+
+class _Budget:
+    """Byte count shared by the two output readers."""
+
+    def __init__(self, cap: int):
+        self.cap, self.total = cap, 0
+        self.over = threading.Event()
+        self._lock = threading.Lock()
+
+    def take(self, count: int) -> bool:
+        with self._lock:
+            self.total += count
+            if self.total > self.cap:
+                self.over.set()
+                return False
+            return True
+
+
+class _Drain(threading.Thread):
+    """Reads one pipe to its end, hashing the bytes and keeping none of them."""
+
+    def __init__(self, stream, budget: _Budget):
+        super().__init__(name='dbound-sandbox-drain', daemon=True)
+        self.stream, self.budget = stream, budget
+        self.digest = hashlib.sha256()
+
+    def run(self) -> None:
+        try:
+            while True:
+                chunk = self.stream.read1(_READ_CHUNK)
+                if not chunk or not self.budget.take(len(chunk)):
+                    return
+                self.digest.update(chunk)
+        except (OSError, ValueError):
+            return
+
+
+def _run_cli(argv: list[str], env: dict[str, str], timeout: float,
+             cap: int = OUTPUT_HARD_CAP_BYTES) -> _CliResult:
+    """Run the container CLI with bounded memory. The CLI is always dead and its readers finished
+    (or reported unfinished) before this returns or raises."""
+    proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, env=env)
+    budget = _Budget(cap)
+    drains = [_Drain(proc.stdout, budget), _Drain(proc.stderr, budget)]
+    timed_out = False
+    try:
+        for drain in drains:
+            drain.start()
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                proc.wait(timeout=0.05)
+                break
+            except subprocess.TimeoutExpired:
+                pass
+            if budget.over.is_set():
+                break
+            if time.monotonic() >= deadline:
+                timed_out = True
+                break
+    finally:
+        if proc.poll() is None:
+            try:
+                proc.kill()
+            except OSError:
+                pass
+        proc.wait()
+        for drain in drains:
+            if drain.is_alive():
+                drain.join(_JOIN_SECONDS)
+        # A reader still blocked (something else holds the pipe) keeps its stream, so a closed and
+        # reused file descriptor can never be read by it.
+        for drain in drains:
+            if not drain.is_alive():
+                drain.stream.close()
+    drained = not any(d.is_alive() for d in drains)
+    return _CliResult(proc.returncode, drains[0].digest.hexdigest(), drains[1].digest.hexdigest(),
+                      budget.total, timed_out, budget.over.is_set(), drained)
 
 
 def _validate_command(command: tuple[str, ...], timeout_seconds: int) -> None:
@@ -85,8 +189,10 @@ class DockerTestRunner(IsolatedTestRunner):
         """Run a command with kernel-enforced limits; never use host shell.
 
         The caller must explicitly opt in to real container execution. Output
-        is hashed rather than copied into durable execution logs; users can
-        inspect test errors separately through a controlled local workflow.
+        is hashed as it arrives rather than stored or copied into durable
+        execution logs. A run that prints more than OUTPUT_HARD_CAP_BYTES is
+        stopped and its container removed. Users can inspect test errors
+        separately through a controlled local workflow.
         """
         _validate_command(command, timeout_seconds)
         uid = getattr(os, 'getuid', lambda: 1000)()
@@ -125,21 +231,7 @@ class DockerTestRunner(IsolatedTestRunner):
             env['DOCKER_HOST'] = daemon
         started = time.monotonic()
         try:
-            result = subprocess.run(argv, capture_output=True, timeout=timeout_seconds + 5,
-                                    env=env, check=False)
-        except subprocess.TimeoutExpired as exc:
-            # The daemon may have left a container running after CLI timeout.
-            # Kill the exact run-scoped container before returning a receipt.
-            try:
-                kill = subprocess.run([self.binary, 'rm', '-f', name],
-                                      capture_output=True, timeout=15, env=env)
-            except (OSError, subprocess.TimeoutExpired) as err:
-                raise RuntimeError('Sandbox timed out and container cleanup is unconfirmed') from err
-            if kill.returncode != 0 and b'No such container' not in kill.stderr:
-                raise RuntimeError('Sandbox timed out and container cleanup failed')
-            duration = int((time.monotonic() - started) * 1000)
-            return TestOutcome('docker', command, None, True, duration, _hash(exc.stdout or b''),
-                               _hash(exc.stderr or b''), bool((exc.stdout or b'') or (exc.stderr or b'')))
+            cli = _run_cli(argv, env, timeout_seconds + 5)
         except BaseException as exc:
             # Python stops waiting for the CLI here (interrupt, memory error, OS error). Killing the CLI
             # does not stop the container, so remove it by name before the error goes on. A failure of
@@ -153,7 +245,20 @@ class DockerTestRunner(IsolatedTestRunner):
             except (OSError, subprocess.TimeoutExpired):
                 exc.add_note(f'Sandbox container {name} may still be running: cleanup unconfirmed')
             raise
+        if cli.timed_out or cli.over_cap:
+            # The CLI was killed, which does not stop the container. Remove the exact run-scoped
+            # container before returning a receipt.
+            try:
+                kill = subprocess.run([self.binary, 'rm', '-f', name],
+                                      capture_output=True, timeout=15, env=env)
+            except (OSError, subprocess.TimeoutExpired) as err:
+                raise RuntimeError('Sandbox stopped and container cleanup is unconfirmed') from err
+            if kill.returncode != 0 and b'No such container' not in kill.stderr:
+                raise RuntimeError('Sandbox stopped and container cleanup failed')
+            duration = int((time.monotonic() - started) * 1000)
+            return TestOutcome('docker', command, None, cli.timed_out, duration, cli.stdout_sha256,
+                               cli.stderr_sha256, cli.over_cap or cli.total_bytes > 0)
         duration = int((time.monotonic() - started) * 1000)
-        return TestOutcome('docker', command, result.returncode, False, duration,
-                           _hash(result.stdout), _hash(result.stderr),
-                           len(result.stdout) + len(result.stderr) > 128_000)
+        return TestOutcome('docker', command, cli.returncode, False, duration,
+                           cli.stdout_sha256, cli.stderr_sha256,
+                           cli.total_bytes > OUTPUT_FLAG_BYTES or not cli.drained)
