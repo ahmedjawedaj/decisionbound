@@ -8,6 +8,7 @@ from unittest.mock import patch
 import pytest
 from decisionbound.code_models import Workspace
 from decisionbound.code_sandbox import DockerTestRunner, ScriptedTestRunner
+from tests.docker_fakes import cli_result
 
 
 @pytest.fixture(autouse=True)
@@ -24,10 +25,10 @@ def workspace(tmp_path: Path) -> Workspace:
 def test_docker_restrictions_are_argv_not_host_shell(tmp_path, monkeypatch):
     ws = workspace(tmp_path)
     requests = []
-    def fake_run(argv, **kwargs):
-        requests.append((argv,kwargs))
-        return subprocess.CompletedProcess(argv, 0, b'test passed', b'')
-    monkeypatch.setattr('decisionbound.code_sandbox.subprocess.run', fake_run)
+    def fake_cli(argv, env, timeout):
+        requests.append((argv, env))
+        return cli_result(0, b'test passed')
+    monkeypatch.setattr('decisionbound.code_sandbox._run_cli', fake_cli)
     receipt = DockerTestRunner('python@sha256:'+'a'*64).run(ws, ('python', '-m', 'pytest', '-q'), 15)
     assert receipt.kind == 'docker' and receipt.exit_code == 0
     command, options = requests[0]
@@ -36,14 +37,14 @@ def test_docker_restrictions_are_argv_not_host_shell(tmp_path, monkeypatch):
     assert 'ALL' in command and '--read-only' in command
     assert '--security-opt' in command and 'no-new-privileges' in command
     assert '--pull' in command and command[command.index('--pull')+1] == 'never'
-    assert 'shell' not in options and command[-4:] == ['python', '-m', 'pytest', '-q']
+    assert command[-4:] == ['python', '-m', 'pytest', '-q']
     assert '--mount' in command and 'type=bind' in command[command.index('--mount')+1]
 
 
 def test_root_caller_is_refused_before_any_daemon_process(tmp_path, monkeypatch):
     ws = workspace(tmp_path)
     monkeypatch.setattr(os, 'getuid', lambda: 0, raising=False)
-    with patch('decisionbound.code_sandbox.subprocess.run') as launch:
+    with patch('decisionbound.code_sandbox._run_cli') as launch:
         with pytest.raises(PermissionError, match='refuses a root caller'):
             DockerTestRunner('python:3.12').run(ws, ('python', '-V'), 4)
     launch.assert_not_called()
@@ -60,43 +61,93 @@ def test_container_uses_unprivileged_caller_or_platform_fallback(tmp_path, monke
         monkeypatch.delattr(os, 'getuid', raising=False)
         monkeypatch.delattr(os, 'getgid', raising=False)
         expected = '1000:1000'
-    with patch('decisionbound.code_sandbox.subprocess.run',
-               return_value=subprocess.CompletedProcess([], 0, b'', b'')) as launch:
+    with patch('decisionbound.code_sandbox._run_cli', return_value=cli_result(0)) as launch:
         DockerTestRunner('python:3.12').run(ws, ('python', '-V'), 4)
     argv = launch.call_args.args[0]
     assert argv[argv.index('--user') + 1] == expected
 
 
-def test_docker_timeout_forces_exact_container_cleanup(tmp_path, monkeypatch):
-    ws = workspace(tmp_path)
-    calls = []
+def fake_docker(monkeypatch, run, cleanup=None):
+    """Replace the CLI run with ``run(argv)`` and the container cleanup with ``cleanup(argv)``."""
+    calls, cleanup_kwargs = [], []
+
+    def fake_cli(argv, env, timeout):
+        calls.append(argv)
+        return run(argv)
+
     def fake_run(argv, **kwargs):
         calls.append(argv)
-        if argv[1] == 'run':
-            raise subprocess.TimeoutExpired(argv, 6)
-        return subprocess.CompletedProcess(argv, 0, b'', b'')
+        cleanup_kwargs.append(kwargs)
+        return cleanup(argv) if cleanup else subprocess.CompletedProcess(argv, 0, b'', b'')
+    monkeypatch.setattr('decisionbound.code_sandbox._run_cli', fake_cli)
     monkeypatch.setattr('decisionbound.code_sandbox.subprocess.run', fake_run)
+    return calls, cleanup_kwargs
+
+
+def raising(error):
+    def run(argv):
+        raise error
+    return run
+
+
+def test_docker_timeout_forces_exact_container_cleanup(tmp_path, monkeypatch):
+    ws = workspace(tmp_path)
+    calls, _ = fake_docker(monkeypatch, lambda argv: cli_result(None, b'partial', timed_out=True))
     result = DockerTestRunner('python:3.12').run(ws, ('python', '-V'), 1)
     assert result.timed_out and result.exit_code is None
+    assert result.output_truncated  # some output arrived before the stop
     assert calls[1][1:3] == ['rm', '-f']
     assert calls[1][3] == calls[0][calls[0].index('--name')+1]
+
+
+def test_a_timeout_without_output_is_not_flagged_as_truncated(tmp_path, monkeypatch):
+    fake_docker(monkeypatch, lambda argv: cli_result(None, timed_out=True))
+    result = DockerTestRunner('python:3.12').run(workspace(tmp_path), ('python', '-V'), 1)
+    assert result.timed_out and not result.output_truncated
+
+
+def test_output_past_the_hard_cap_stops_the_run_and_removes_the_container(tmp_path, monkeypatch):
+    ws = workspace(tmp_path)
+    calls, _ = fake_docker(monkeypatch, lambda argv: cli_result(None, b'x' * 10, over_cap=True))
+    result = DockerTestRunner('python:3.12').run(ws, ('python', '-V'), 5)
+    assert result.exit_code is None and result.output_truncated and not result.timed_out
+    assert [c[1:3] for c in calls] == [['run', '--name'], ['rm', '-f']]
+    assert calls[1][3] == calls[0][calls[0].index('--name') + 1]
+
+
+def test_the_cleanup_after_a_stop_failing_is_an_error_not_a_receipt(tmp_path, monkeypatch):
+    fake_docker(monkeypatch, lambda argv: cli_result(None, over_cap=True),
+                cleanup=lambda argv: subprocess.CompletedProcess(argv, 1, b'', b'denied'))
+    with pytest.raises(RuntimeError, match='cleanup failed'):
+        DockerTestRunner('python:3.12').run(workspace(tmp_path), ('python', '-V'), 5)
+
+
+@pytest.mark.parametrize('size,expected', [(128_000, False), (128_001, True)], ids=['at-limit', 'over-limit'])
+def test_output_over_the_flag_size_marks_the_receipt_truncated(tmp_path, monkeypatch, size, expected):
+    fake_docker(monkeypatch, lambda argv: cli_result(0, b'x' * (size - 3), b'e' * 3))
+    result = DockerTestRunner('python:3.12').run(workspace(tmp_path), ('python', '-V'), 5)
+    assert result.output_truncated is expected and result.exit_code == 0
+
+
+def test_a_run_whose_output_could_not_be_fully_read_is_marked_truncated(tmp_path, monkeypatch):
+    fake_docker(monkeypatch, lambda argv: cli_result(0, b'ok', drained=False))
+    result = DockerTestRunner('python:3.12').run(workspace(tmp_path), ('python', '-V'), 5)
+    assert result.output_truncated
+
+
+def test_the_receipt_carries_the_hashes_of_the_streams(tmp_path, monkeypatch):
+    import hashlib
+    fake_docker(monkeypatch, lambda argv: cli_result(3, b'out', b'err'))
+    result = DockerTestRunner('python:3.12').run(workspace(tmp_path), ('python', '-V'), 5)
+    assert result.stdout_sha256 == hashlib.sha256(b'out').hexdigest()
+    assert result.stderr_sha256 == hashlib.sha256(b'err').hexdigest()
 
 
 @pytest.mark.parametrize('error', [KeyboardInterrupt(), OSError('pipe broke'), MemoryError(), RuntimeError('x')],
                          ids=lambda e: type(e).__name__)
 def test_any_other_exit_path_also_removes_the_container_and_keeps_the_error(tmp_path, monkeypatch, error):
     ws = workspace(tmp_path)
-    calls = []
-
-    cleanup_kwargs = []
-
-    def fake_run(argv, **kwargs):
-        calls.append(argv)
-        if argv[1] == 'run':
-            raise error
-        cleanup_kwargs.append(kwargs)
-        return subprocess.CompletedProcess(argv, 0, b'', b'')
-    monkeypatch.setattr('decisionbound.code_sandbox.subprocess.run', fake_run)
+    calls, cleanup_kwargs = fake_docker(monkeypatch, raising(error))
     with pytest.raises(type(error)):
         DockerTestRunner('python:3.12').run(ws, ('python', '-V'), 1)
     assert [c[1:3] for c in calls] == [['run', '--name'], ['rm', '-f']]
@@ -109,24 +160,14 @@ def test_any_other_exit_path_also_removes_the_container_and_keeps_the_error(tmp_
                          ids=lambda e: type(e).__name__)
 def test_a_failing_cleanup_does_not_hide_the_original_error(tmp_path, monkeypatch, cleanup_error):
     ws = workspace(tmp_path)
-
-    def fake_run(argv, **kwargs):
-        raise KeyboardInterrupt() if argv[1] == 'run' else cleanup_error
-    monkeypatch.setattr('decisionbound.code_sandbox.subprocess.run', fake_run)
+    fake_docker(monkeypatch, raising(KeyboardInterrupt()), cleanup=raising(cleanup_error))
     with pytest.raises(KeyboardInterrupt):
         DockerTestRunner('python:3.12').run(ws, ('python', '-V'), 1)
 
 
 def test_the_cleanup_uses_the_configured_binary(tmp_path, monkeypatch):
     ws = workspace(tmp_path)
-    calls = []
-
-    def fake_run(argv, **kwargs):
-        calls.append(argv)
-        if argv[1] == 'run':
-            raise OSError('x')
-        return subprocess.CompletedProcess(argv, 0, b'', b'')
-    monkeypatch.setattr('decisionbound.code_sandbox.subprocess.run', fake_run)
+    calls, _ = fake_docker(monkeypatch, raising(OSError('x')))
     with pytest.raises(OSError):
         DockerTestRunner('python:3.12', docker_binary='podman').run(ws, ('python', '-V'), 1)
     assert [c[0] for c in calls] == ['podman', 'podman']
@@ -142,13 +183,11 @@ def test_the_cleanup_uses_the_configured_binary(tmp_path, monkeypatch):
 def test_a_leaked_container_is_noted_on_the_original_error(tmp_path, monkeypatch, result, expected):
     ws = workspace(tmp_path)
 
-    def fake_run(argv, **kwargs):
-        if argv[1] == 'run':
-            raise KeyboardInterrupt()
+    def cleanup(argv):
         if isinstance(result, BaseException):
             raise result
         return result
-    monkeypatch.setattr('decisionbound.code_sandbox.subprocess.run', fake_run)
+    fake_docker(monkeypatch, raising(KeyboardInterrupt()), cleanup=cleanup)
     with pytest.raises(KeyboardInterrupt) as caught:
         DockerTestRunner('python:3.12').run(ws, ('python', '-V'), 1)
     notes = ' '.join(getattr(caught.value, '__notes__', []))
@@ -160,20 +199,15 @@ def test_a_leaked_container_is_noted_on_the_original_error(tmp_path, monkeypatch
 
 def test_a_normal_exit_does_not_run_a_second_docker_command(tmp_path, monkeypatch):
     ws = workspace(tmp_path)
-    calls = []
-    monkeypatch.setattr('decisionbound.code_sandbox.subprocess.run',
-                        lambda argv, **kw: calls.append(argv) or subprocess.CompletedProcess(argv, 3, b'out', b'err'))
+    calls, _ = fake_docker(monkeypatch, lambda argv: cli_result(3, b'out', b'err'))
     result = DockerTestRunner('python:3.12').run(ws, ('python', '-V'), 1)
     assert len(calls) == 1 and result.exit_code == 3
 
 
 def test_failed_container_cleanup_is_not_a_success_receipt(tmp_path, monkeypatch):
     ws = workspace(tmp_path)
-    def fake_run(argv, **kwargs):
-        if argv[1] == 'run':
-            raise subprocess.TimeoutExpired(argv, 2)
-        return subprocess.CompletedProcess(argv, 1, b'', b'denied')
-    monkeypatch.setattr('decisionbound.code_sandbox.subprocess.run', fake_run)
+    fake_docker(monkeypatch, lambda argv: cli_result(None, timed_out=True),
+                cleanup=lambda argv: subprocess.CompletedProcess(argv, 1, b'', b'denied'))
     with pytest.raises(RuntimeError, match='cleanup failed'):
         DockerTestRunner('python:3.12').run(ws, ('python','-V'), 1)
 
@@ -287,8 +321,8 @@ def real_argv(tmp_path, monkeypatch, command=('python', '-V')) -> tuple[list[str
     ws = workspace(tmp_path)
     image = 'python@sha256:' + 'a' * 64
     seen = []
-    monkeypatch.setattr('decisionbound.code_sandbox.subprocess.run',
-                        lambda argv, **kw: seen.append(argv) or subprocess.CompletedProcess(argv, 0, b'', b''))
+    monkeypatch.setattr('decisionbound.code_sandbox._run_cli',
+                        lambda argv, env, timeout: seen.append(argv) or cli_result(0))
     runner = DockerTestRunner(image, memory_mb=256, cpus=2.0, pids=32)  # not the defaults, so none can be hard-coded
     runner.run(ws, command, 4)
     return seen[0], runner, Path(ws.path).resolve()

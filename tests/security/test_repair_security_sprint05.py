@@ -1,6 +1,5 @@
 """Host acceptance and repair policies resist compromised model/runner claims."""
 from __future__ import annotations
-import subprocess
 from pathlib import Path
 import pytest
 
@@ -9,6 +8,7 @@ from decisionbound.code_execution import PatchFileProposer, run_coding_task
 from decisionbound.code_models import TestOutcome
 from decisionbound.code_ports import CodingVerifier, IsolatedTestRunner
 from decisionbound.code_sandbox import DockerTestRunner
+from tests.docker_fakes import cli_result
 from tests.integration.test_code_workflow import PATCH, project
 import os
 
@@ -41,14 +41,12 @@ def test_custom_runner_cannot_forge_real_sandbox(project):
 
 def test_docker_protocol_simulation_contract_true_but_task_still_not_completed(project, monkeypatch):
     import decisionbound.code_sandbox as sandbox
-    original = subprocess.run
-    def stub(argv, **kwargs):
-        if argv[0] == 'docker':
-            assert '--network' in argv and argv[argv.index('--network')+1] == 'none'
-            assert '--cap-drop' in argv
-            return subprocess.CompletedProcess(argv, 0, b'OK\n', b'')
-        return original(argv, **kwargs)
-    monkeypatch.setattr(sandbox.subprocess,'run',stub)
+    def stub(argv, env, timeout):
+        assert argv[0] == 'docker'
+        assert '--network' in argv and argv[argv.index('--network')+1] == 'none'
+        assert '--cap-drop' in argv
+        return cli_result(0, b'OK\n')
+    monkeypatch.setattr(sandbox, '_run_cli', stub)
     result = run_coding_task(project_path=project[0],state_root=project[1],repository=project[2],
         task='x',proposer=PatchFileProposer(PATCH),runner=DockerTestRunner('test-image:fake'),
         test_commands=contract().test_commands, approved_writes=True, contract=contract())
@@ -59,12 +57,7 @@ def test_docker_protocol_simulation_contract_true_but_task_still_not_completed(p
 
 def test_docker_protocol_mock_failing_content_assertion(project, monkeypatch):
     import decisionbound.code_sandbox as sandbox
-    original = subprocess.run
-    def stub(argv, **kwargs):
-        if argv[0] == 'docker':
-            return subprocess.CompletedProcess(argv, 0, b'OK', b'')
-        return original(argv, **kwargs)
-    monkeypatch.setattr(sandbox.subprocess,'run',stub)
+    monkeypatch.setattr(sandbox, '_run_cli', lambda argv, env, timeout: cli_result(0, b'OK'))
     con = TaskContract('must-match',('app.py',),('app.py',),(('python','-V'),),
                        (TextPredicate('app.py',contains='VALUE = 999'),))
     result = run_coding_task(project_path=project[0],state_root=project[1],repository=project[2],
