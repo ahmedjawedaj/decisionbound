@@ -82,6 +82,45 @@ def test_docker_timeout_forces_exact_container_cleanup(tmp_path, monkeypatch):
     assert calls[1][3] == calls[0][calls[0].index('--name')+1]
 
 
+@pytest.mark.parametrize('error', [KeyboardInterrupt(), OSError('pipe broke'), MemoryError(), RuntimeError('x')],
+                         ids=lambda e: type(e).__name__)
+def test_any_other_exit_path_also_removes_the_container_and_keeps_the_error(tmp_path, monkeypatch, error):
+    ws = workspace(tmp_path)
+    calls = []
+
+    def fake_run(argv, **kwargs):
+        calls.append(argv)
+        if argv[1] == 'run':
+            raise error
+        return subprocess.CompletedProcess(argv, 0, b'', b'')
+    monkeypatch.setattr('decisionbound.code_sandbox.subprocess.run', fake_run)
+    with pytest.raises(type(error)):
+        DockerTestRunner('python:3.12').run(ws, ('python', '-V'), 1)
+    assert [c[1:3] for c in calls] == [['run', '--name'], ['rm', '-f']]
+    assert calls[1][3] == calls[0][calls[0].index('--name') + 1]
+
+
+@pytest.mark.parametrize('cleanup_error', [OSError('no docker'), subprocess.TimeoutExpired(['docker'], 15)],
+                         ids=lambda e: type(e).__name__)
+def test_a_failing_cleanup_does_not_hide_the_original_error(tmp_path, monkeypatch, cleanup_error):
+    ws = workspace(tmp_path)
+
+    def fake_run(argv, **kwargs):
+        raise KeyboardInterrupt() if argv[1] == 'run' else cleanup_error
+    monkeypatch.setattr('decisionbound.code_sandbox.subprocess.run', fake_run)
+    with pytest.raises(KeyboardInterrupt):
+        DockerTestRunner('python:3.12').run(ws, ('python', '-V'), 1)
+
+
+def test_a_normal_exit_does_not_run_a_second_docker_command(tmp_path, monkeypatch):
+    ws = workspace(tmp_path)
+    calls = []
+    monkeypatch.setattr('decisionbound.code_sandbox.subprocess.run',
+                        lambda argv, **kw: calls.append(argv) or subprocess.CompletedProcess(argv, 3, b'out', b'err'))
+    result = DockerTestRunner('python:3.12').run(ws, ('python', '-V'), 1)
+    assert len(calls) == 1 and result.exit_code == 3
+
+
 def test_failed_container_cleanup_is_not_a_success_receipt(tmp_path, monkeypatch):
     ws = workspace(tmp_path)
     def fake_run(argv, **kwargs):
@@ -127,6 +166,7 @@ def test_scripted_runner_is_honestly_mock_labeled(tmp_path):
 OPTION_SHAPE = {
     '--name': (True, 1), '--rm': (False, 1), '--network': (True, 1), '--pull': (True, 1),
     '--read-only': (False, 1), '--cap-drop': (True, 1), '--security-opt': (True, 1),
+    '--log-driver': (True, 1), '--memory-swap': (True, 1),
     '--pids-limit': (True, 1), '--memory': (True, 1), '--cpus': (True, 1), '--user': (True, 1),
     '--tmpfs': (True, 1), '-e': (True, 2), '--mount': (True, 1), '-w': (True, 1),
 }
@@ -143,6 +183,7 @@ def expected_values(runner: DockerTestRunner, workspace_root: Path) -> dict:
         '--name': re.compile(r'dbound-[a-f0-9]{32}-[a-f0-9]{8}'),
         '--network': 'none', '--pull': 'never', '--cap-drop': 'ALL', '--security-opt': 'no-new-privileges',
         '--pids-limit': str(runner.pids), '--memory': f'{runner.memory_mb}m', '--cpus': str(runner.cpus),
+        '--memory-swap': f'{runner.memory_mb}m', '--log-driver': 'none',
         '--user': f'{UID}:{GID}', '--tmpfs': '/tmp:rw,nosuid,nodev,size=64m',
         '--mount': f'type=bind,src={workspace_root},dst=/workspace', '-w': '/workspace',
     }
@@ -248,6 +289,7 @@ EXTRA_OPTIONS = [
     (['--storage-opt', 'size=1T'], '--storage-opt'),
     (['--sysctl', 'kernel.shmmax=1'], '--sysctl'),
     (['--shm-size', '1g'], '--shm-size'),
+    (['--log-opt', 'max-size=1g'], '--log-opt'),
     (['--init'], '--init'),
     (['--hostname', 'x'], '--hostname'),
     (['--ulimit', 'nofile=1'], '--ulimit'),
@@ -324,6 +366,7 @@ def test_control_a_value_that_runs_into_the_image_name_is_flagged(tmp_path, monk
     ('--user', '\u0661\u0662\u0663\u0664:5678'),
     ('--pids-limit', '0'), ('--pids-limit', '-1'), ('--pids-limit', '99999'),
     ('--memory', '0m'), ('--memory', '99999m'), ('--memory', '-1'),
+    ('--memory-swap', '-1'), ('--memory-swap', '99999m'), ('--log-driver', 'json-file'),
     ('--cpus', '0'), ('--cpus', '99'),
     ('--tmpfs', '/tmp:rw,nosuid,nodev,size=0m'), ('--tmpfs', '/tmp:rw,nosuid,nodev,exec,size=64m'),
     ('--name', 'evil'), ('--name', 'dbound-1'),
