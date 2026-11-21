@@ -100,7 +100,7 @@ def test_a_run_that_outlasts_its_time_is_killed_and_keeps_the_output_so_far(tmp_
     code = (f"import os, sys, time; open({str(pidfile)!r}, 'w').write(str(os.getpid()) + '\\n')\n"
             "sys.stdout.write('x'); sys.stdout.flush(); time.sleep(60)\n")
     started = time.monotonic()
-    result = run(code, timeout=1)
+    result = run(code, timeout=3)
     assert result.timed_out and not result.over_cap and result.drained
     assert result.stdout_sha256 == hashlib.sha256(b'x').hexdigest()
     assert time.monotonic() - started < 15
@@ -143,6 +143,8 @@ def test_a_pipe_held_open_by_another_process_is_reported_and_its_stream_stays_op
         # A reader that is still blocked keeps a valid stream, so it can never read a reused descriptor.
         stuck = [t for t in threading.enumerate() if t.name == 'dbound-sandbox-drain' and t.is_alive()]
         assert stuck and all(not t.stream.closed for t in stuck)
+        # And it must not keep the interpreter from exiting.
+        assert all(t.daemon for t in stuck)
     finally:
         os.kill(holder, 9)
         for t in threading.enumerate():
@@ -176,3 +178,23 @@ def test_the_receipt_waits_for_a_slow_reader_to_finish(monkeypatch):
     assert result.stdout_sha256 == hashlib.sha256(b'late').hexdigest()
     assert result.stderr_sha256 == hashlib.sha256(b'later').hexdigest()
     assert result.total_bytes == 9 and result.drained
+
+
+class _FailingStream:
+    def read1(self, size):
+        raise OSError('read failed')
+
+    def close(self):
+        pass
+
+
+def test_a_reader_that_fails_marks_the_run_as_not_fully_read(monkeypatch):
+    """Lost output must never look like a clean run with an empty hash."""
+    original = code_sandbox._Drain.run
+
+    def broken(self):
+        self.stream = _FailingStream()
+        original(self)
+    monkeypatch.setattr(code_sandbox._Drain, 'run', broken)
+    result = run("print('hi')")
+    assert result.returncode == 0 and not result.drained

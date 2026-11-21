@@ -69,6 +69,7 @@ class _Drain(threading.Thread):
         super().__init__(name='dbound-sandbox-drain', daemon=True)
         self.stream, self.budget = stream, budget
         self.digest = hashlib.sha256()
+        self.failed = False  # set when a read error or another exception cut the output short
 
     def run(self) -> None:
         try:
@@ -77,14 +78,15 @@ class _Drain(threading.Thread):
                 if not chunk or not self.budget.take(len(chunk)):
                     return
                 self.digest.update(chunk)
-        except (OSError, ValueError):
-            return
+        except BaseException:
+            self.failed = True
 
 
 def _run_cli(argv: list[str], env: dict[str, str], timeout: float,
              cap: int = OUTPUT_HARD_CAP_BYTES) -> _CliResult:
-    """Run the container CLI with bounded memory. The CLI is always dead and its readers finished
-    (or reported unfinished) before this returns or raises."""
+    """Run the container CLI with bounded memory. On a normal return or a timeout the CLI is dead and
+    its readers are finished, or reported through ``drained``. An interrupt during the cleanup itself
+    can skip the last steps, and the caller then removes the container by name."""
     proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE, env=env)
     budget = _Budget(cap)
@@ -111,7 +113,10 @@ def _run_cli(argv: list[str], env: dict[str, str], timeout: float,
                 proc.kill()
             except OSError:
                 pass
-        proc.wait()
+        try:
+            proc.wait(timeout=_JOIN_SECONDS)
+        except subprocess.TimeoutExpired:
+            pass
         for drain in drains:
             if drain.is_alive():
                 drain.join(_JOIN_SECONDS)
@@ -120,7 +125,7 @@ def _run_cli(argv: list[str], env: dict[str, str], timeout: float,
         for drain in drains:
             if not drain.is_alive():
                 drain.stream.close()
-    drained = not any(d.is_alive() for d in drains)
+    drained = not any(d.is_alive() or d.failed for d in drains)
     return _CliResult(proc.returncode, drains[0].digest.hexdigest(), drains[1].digest.hexdigest(),
                       budget.total, timed_out, budget.over.is_set(), drained)
 
