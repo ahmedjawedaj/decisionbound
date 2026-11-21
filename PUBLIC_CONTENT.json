@@ -317,6 +317,7 @@
     "tests/security/test_repair_security_sprint05.py",
     "tests/security/test_security_boundaries.py",
     "tests/security/test_signed_release_sprint13.py",
+    "tests/security/test_worktree_trusted_git.py",
     "tests/site-demo.test.mjs",
     "tests/unit/README.md",
     "tests/unit/test_agent_loop_limits.py",

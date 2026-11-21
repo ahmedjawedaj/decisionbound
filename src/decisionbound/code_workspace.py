@@ -38,7 +38,7 @@ def _git_env() -> dict[str, str]:
 _LINE_ENDING_VALUES = {'core.autocrlf': ('true', 'false', 'input'), 'core.eol': ('lf', 'crlf', 'native')}
 
 
-def _line_ending_options(root: Path) -> list[str]:
+def _line_ending_options(root: Path, git_dir: Path | None = None) -> list[str]:
     """Forward the user's effective line-ending settings to isolated Git calls.
 
     `_git_env` hides system and global configuration, but Git for Windows sets
@@ -50,7 +50,8 @@ def _line_ending_options(root: Path) -> list[str]:
            if not key.startswith(('GIT_', 'SSH_'))}
     env['GIT_TERMINAL_PROMPT'] = '0'
     try:
-        result = subprocess.run(['git', '-C', str(root), 'config', '--get-regexp', r'^core\.(autocrlf|eol)$'],
+        result = subprocess.run(['git', '-C', str(root), *_trusted_location(root, git_dir),
+                                 'config', '--get-regexp', r'^core\.(autocrlf|eol)$'],
                                 capture_output=True, text=True, timeout=15, env=env)
     except (OSError, subprocess.TimeoutExpired):
         return []
@@ -65,12 +66,78 @@ def _line_ending_options(root: Path) -> list[str]:
     return [item for key, value in sorted(settings.items()) for item in ('-c', f'{key}={value}')]
 
 
-def _git(root: Path, *args: str, timeout: int = 30) -> str:
-    """Call the Git executable with a fixed argument vector, never a shell."""
+def _trusted_location(worktree: Path, git_dir: Path | None) -> list[str]:
+    """Git options that ignore ``<worktree>/.git`` and the config it would select.
+
+    A container that ran with the worktree mounted read/write can replace the ``.git`` file with a
+    directory of its own. Git would then read that directory's config and may run programs it names
+    (for example ``core.fsmonitor``). A trusted git directory outside the mount, with the options
+    below, makes Git ignore the planted one.
+    """
+    if git_dir is None:
+        return []
+    return ['--git-dir', str(git_dir), '--work-tree', str(worktree), '--literal-pathspecs',
+            '-c', 'core.fsmonitor=false']
+
+
+def worktree_git_dir(workspace: Workspace) -> Path:
+    """Find the Git metadata directory of a managed worktree without reading anything the worktree holds.
+
+    The answer comes only from the source repository's own ``worktrees/*/gitdir`` files, which the
+    container cannot reach. Exactly one entry must point back at this worktree.
+    """
+    try:
+        worktree = Path(workspace.path)
+        repository = Path(workspace.repository_root)
+        common = Path(_git(repository, 'rev-parse', '--git-common-dir'))
+        common = (common if common.is_absolute() else repository / common).resolve(strict=True)
+        wanted = os.path.normcase(str((worktree.resolve(strict=True) / '.git')))
+        found = []
+        for entry in sorted((common / 'worktrees').glob('*')):
+            try:
+                pointer = (entry / 'gitdir').read_text(encoding='utf-8').strip()
+            except OSError:
+                continue
+            # A pointer may be relative to its own directory (worktree.useRelativePaths).
+            if os.path.normcase(str((entry / pointer).resolve())) == wanted:
+                found.append(entry.resolve(strict=True))
+    except OSError as exc:
+        raise WorkspaceError('Worktree or source repository is not available') from exc
+    if len(found) != 1:
+        raise WorkspaceError('Git does not list exactly one metadata directory for this worktree')
+    return found[0]
+
+
+def git_entry_is_original(workspace: Workspace, git_dir: Path) -> bool:
+    """True only while ``<worktree>/.git`` is still the regular pointer file Git wrote.
+
+    Test code can replace it with a directory or a symlink. Nothing runs from it once the host passes
+    ``--git-dir``, but a replaced entry means the worktree was tampered with and the run is not trusted.
+    """
+    entry = Path(workspace.path) / '.git'
+    try:
+        if entry.is_symlink() or not entry.is_file():
+            return False
+        with entry.open('rb') as handle:
+            text = handle.read(4096).decode('utf-8').strip()  # bounded: the container controls this file
+        if not text.startswith('gitdir:'):
+            return False
+        pointer = text[len('gitdir:'):].strip()
+        return (Path(workspace.path) / pointer).resolve() == git_dir.resolve()
+    except (OSError, UnicodeError):
+        return False
+
+
+def _git(root: Path, *args: str, timeout: int = 30, git_dir: Path | None = None) -> str:
+    """Call the Git executable with a fixed argument vector, never a shell.
+
+    Pass ``git_dir`` (from :func:`worktree_git_dir`) for any worktree that untrusted code has touched.
+    """
     env = _git_env()
     try:
-        result = subprocess.run(['git', '-C', str(root), '-c', 'core.hooksPath=/dev/null',
-                                 *_line_ending_options(root), *args],
+        result = subprocess.run(['git', '-C', str(root), *_trusted_location(root, git_dir),
+                                 '-c', 'core.hooksPath=/dev/null',
+                                 *_line_ending_options(root, git_dir), *args],
                                 capture_output=True, text=True, timeout=timeout, env=env)
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise WorkspaceError('Git command unavailable or timed out') from exc

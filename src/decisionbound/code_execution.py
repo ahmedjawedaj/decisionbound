@@ -18,7 +18,7 @@ from .code_models import CodingOutcome, PatchInspection, PatchProposal, TestOutc
 from .code_acceptance import TaskContract
 from .code_ports import CodingVerifier, IsolatedTestRunner, PatchProposer
 from .code_patches import PatchPolicy, PatchValidator, UnsafePatch
-from .code_workspace import GitWorktreeManager, WorkspaceError, _git
+from .code_workspace import GitWorktreeManager, WorkspaceError, _git, git_entry_is_original, worktree_git_dir
 from .code_sandbox import DockerTestRunner
 from .identity import load_project
 from .storage import SQLiteRepository
@@ -109,7 +109,10 @@ def _validated_source_files(root: Path, targets: tuple[str, ...], policy: PatchP
 def _changed_diff(workspace: Workspace, inspection: PatchInspection) -> tuple[str, str]:
     """Capture Git's canonical tracked/new-file diff and enforce exact scope."""
     root = Path(workspace.path)
-    status = _git(root, 'status', '--porcelain', '--untracked-files=all', '--ignored=matching')
+    # The container could write to this worktree, so never let Git read the `.git` entry inside it.
+    git_dir = worktree_git_dir(workspace)
+    status = _git(root, 'status', '--porcelain', '--untracked-files=all', '--ignored=matching',
+                  '--ignore-submodules=all', git_dir=git_dir)
     changed: set[str] = set()
     new: list[str] = []
     for line in status.splitlines():
@@ -121,8 +124,9 @@ def _changed_diff(workspace: Workspace, inspection: PatchInspection) -> tuple[st
     if changed != set(inspection.paths):
         raise UnsafePatch('Changed files do not match approved patch scope')
     if new:
-        _git(root, 'add', '-N', '--', *new)
-    diff = _git(root, 'diff', '--no-ext-diff', '--no-textconv', '--binary', 'HEAD', '--', *inspection.paths)
+        _git(root, 'add', '-N', '--', *new, git_dir=git_dir)
+    diff = _git(root, 'diff', '--no-ext-diff', '--no-textconv', '--binary', 'HEAD', '--', *inspection.paths,
+                 git_dir=git_dir)
     if not diff:
         raise UnsafePatch('Patch did not change any source')
     return hashlib.sha256(diff.encode('utf-8')).hexdigest(), diff
@@ -232,7 +236,7 @@ def run_coding_task(*, project_path: Path, state_root: Path, repository: SQLiteR
         if not isinstance(proposal, PatchProposal):
             raise TypeError('Patch proposer returned an invalid result')
         validator = PatchValidator(policy)
-        inspection = validator.apply(proposal.patch, Path(workspace.path))
+        inspection = validator.apply(proposal.patch, Path(workspace.path), git_dir=worktree_git_dir(workspace))
         digest, _ = _changed_diff(workspace, inspection)
         if contract is not None and (not set(inspection.paths) <= set(contract.allowed_paths) or
                                      not set(contract.required_paths) <= set(inspection.paths)):
@@ -255,6 +259,8 @@ def run_coding_task(*, project_path: Path, state_root: Path, repository: SQLiteR
             if receipt.exit_code != 0 or receipt.timed_out or receipt.output_truncated:
                 break
         try:
+            if not git_entry_is_original(workspace, worktree_git_dir(workspace)):
+                raise UnsafePatch('The worktree .git entry was replaced during the tests')
             after_digest, _ = _changed_diff(workspace, inspection)
             unchanged = (after_digest == digest)
         except (UnsafePatch, WorkspaceError):
