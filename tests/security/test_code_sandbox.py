@@ -88,16 +88,21 @@ def test_any_other_exit_path_also_removes_the_container_and_keeps_the_error(tmp_
     ws = workspace(tmp_path)
     calls = []
 
+    cleanup_kwargs = []
+
     def fake_run(argv, **kwargs):
         calls.append(argv)
         if argv[1] == 'run':
             raise error
+        cleanup_kwargs.append(kwargs)
         return subprocess.CompletedProcess(argv, 0, b'', b'')
     monkeypatch.setattr('decisionbound.code_sandbox.subprocess.run', fake_run)
     with pytest.raises(type(error)):
         DockerTestRunner('python:3.12').run(ws, ('python', '-V'), 1)
     assert [c[1:3] for c in calls] == [['run', '--name'], ['rm', '-f']]
     assert calls[1][3] == calls[0][calls[0].index('--name') + 1]
+    assert cleanup_kwargs[0]['timeout'] == 15
+    assert set(cleanup_kwargs[0]['env']) >= {'PATH', 'HOME'}
 
 
 @pytest.mark.parametrize('cleanup_error', [OSError('no docker'), subprocess.TimeoutExpired(['docker'], 15)],
@@ -110,6 +115,47 @@ def test_a_failing_cleanup_does_not_hide_the_original_error(tmp_path, monkeypatc
     monkeypatch.setattr('decisionbound.code_sandbox.subprocess.run', fake_run)
     with pytest.raises(KeyboardInterrupt):
         DockerTestRunner('python:3.12').run(ws, ('python', '-V'), 1)
+
+
+def test_the_cleanup_uses_the_configured_binary(tmp_path, monkeypatch):
+    ws = workspace(tmp_path)
+    calls = []
+
+    def fake_run(argv, **kwargs):
+        calls.append(argv)
+        if argv[1] == 'run':
+            raise OSError('x')
+        return subprocess.CompletedProcess(argv, 0, b'', b'')
+    monkeypatch.setattr('decisionbound.code_sandbox.subprocess.run', fake_run)
+    with pytest.raises(OSError):
+        DockerTestRunner('python:3.12', docker_binary='podman').run(ws, ('python', '-V'), 1)
+    assert [c[0] for c in calls] == ['podman', 'podman']
+
+
+@pytest.mark.parametrize('result,expected', [
+    (subprocess.CompletedProcess([], 1, b'', b'permission denied'), 'cleanup failed'),
+    (OSError('no docker'), 'cleanup unconfirmed'),
+    (subprocess.TimeoutExpired(['docker'], 15), 'cleanup unconfirmed'),
+    (subprocess.CompletedProcess([], 1, b'', b'Error: No such container: x'), None),
+    (subprocess.CompletedProcess([], 0, b'', b''), None),
+], ids=['nonzero', 'oserror', 'timeout', 'already-gone', 'ok'])
+def test_a_leaked_container_is_noted_on_the_original_error(tmp_path, monkeypatch, result, expected):
+    ws = workspace(tmp_path)
+
+    def fake_run(argv, **kwargs):
+        if argv[1] == 'run':
+            raise KeyboardInterrupt()
+        if isinstance(result, BaseException):
+            raise result
+        return result
+    monkeypatch.setattr('decisionbound.code_sandbox.subprocess.run', fake_run)
+    with pytest.raises(KeyboardInterrupt) as caught:
+        DockerTestRunner('python:3.12').run(ws, ('python', '-V'), 1)
+    notes = ' '.join(getattr(caught.value, '__notes__', []))
+    if expected:
+        assert 'may still be running' in notes and expected in notes
+    else:
+        assert notes == ''
 
 
 def test_a_normal_exit_does_not_run_a_second_docker_command(tmp_path, monkeypatch):
@@ -243,7 +289,7 @@ def real_argv(tmp_path, monkeypatch, command=('python', '-V')) -> tuple[list[str
     seen = []
     monkeypatch.setattr('decisionbound.code_sandbox.subprocess.run',
                         lambda argv, **kw: seen.append(argv) or subprocess.CompletedProcess(argv, 0, b'', b''))
-    runner = DockerTestRunner(image)
+    runner = DockerTestRunner(image, memory_mb=256, cpus=2.0, pids=32)  # not the defaults, so none can be hard-coded
     runner.run(ws, command, 4)
     return seen[0], runner, Path(ws.path).resolve()
 

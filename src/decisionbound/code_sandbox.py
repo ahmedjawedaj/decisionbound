@@ -140,14 +140,18 @@ class DockerTestRunner(IsolatedTestRunner):
             duration = int((time.monotonic() - started) * 1000)
             return TestOutcome('docker', command, None, True, duration, _hash(exc.stdout or b''),
                                _hash(exc.stderr or b''), bool((exc.stdout or b'') or (exc.stderr or b'')))
-        except BaseException:
+        except BaseException as exc:
             # Python stops waiting for the CLI here (interrupt, memory error, OS error). Killing the CLI
             # does not stop the container, so remove it by name before the error goes on. A failure of
-            # this cleanup must not hide the original error.
+            # this cleanup must not hide the original error, so it is only noted on it. This does not
+            # help when the Python process itself is killed (SIGTERM, SIGKILL, power loss).
             try:
-                subprocess.run([self.binary, 'rm', '-f', name], capture_output=True, timeout=15, env=env)
+                cleanup = subprocess.run([self.binary, 'rm', '-f', name],
+                                         capture_output=True, timeout=15, env=env)
+                if cleanup.returncode != 0 and b'No such container' not in (cleanup.stderr or b''):
+                    exc.add_note(f'Sandbox container {name} may still be running: cleanup failed')
             except (OSError, subprocess.TimeoutExpired):
-                pass
+                exc.add_note(f'Sandbox container {name} may still be running: cleanup unconfirmed')
             raise
         duration = int((time.monotonic() - started) * 1000)
         return TestOutcome('docker', command, result.returncode, False, duration,
