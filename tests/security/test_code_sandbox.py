@@ -2,6 +2,7 @@
 from __future__ import annotations
 import subprocess
 import os
+import re
 from pathlib import Path
 from unittest.mock import patch
 import pytest
@@ -119,33 +120,82 @@ def test_scripted_runner_is_honestly_mock_labeled(tmp_path):
 
 # The real Docker probe in tests/integration/test_docker_isolation_real.py cannot see a bind of a
 # tmpfs-backed host directory such as /dev/shm, because it looks like tmpfs from inside the container
-# (issue 20). This check reads the argument list instead. It cannot see a mount that the daemon adds on
-# its own, so it complements that probe and does not replace it.
-HOST_ACCESS_FLAGS = ('-v', '--volume', '--volumes-from', '--device', '--privileged', '--cap-add',
-                     '--pid', '--ipc', '--uts', '--userns', '--cgroupns')
+# (issue 20). This check reads the argument list instead. It is an allowlist of exactly the options the
+# runner emits, so any other option before the image name is a violation, whatever it does. It cannot see
+# a mount that the daemon adds on its own, so it complements that probe and does not replace it.
+def _exact(text: str):
+    return lambda value: value == text
+
+
+def _pattern(regex: str):
+    return lambda value: re.fullmatch(regex, value) is not None
+
+
+# option -> (takes a value, accepts the value, how many times it must appear)
+ALLOWED_OPTIONS = {
+    '--name': (True, _pattern(r'dbound-[a-f0-9]{32}-[a-f0-9]{8}'), 1),
+    '--rm': (False, None, 1),
+    '--network': (True, _exact('none'), 1),
+    '--pull': (True, _exact('never'), 1),
+    '--read-only': (False, None, 1),
+    '--cap-drop': (True, _exact('ALL'), 1),
+    '--security-opt': (True, _exact('no-new-privileges'), 1),
+    '--pids-limit': (True, _pattern(r'\d+'), 1),
+    '--memory': (True, _pattern(r'\d+m'), 1),
+    '--cpus': (True, _pattern(r'\d+(\.\d+)?'), 1),
+    '--user': (True, _pattern(r'(?!0:)\d+:\d+'), 1),
+    '--tmpfs': (True, _pattern(r'/tmp:rw,nosuid,nodev,size=\d+m'), 1),
+    '-e': (True, _pattern(r'PYTHONDONTWRITEBYTECODE=1|PYTEST_DISABLE_PLUGIN_AUTOLOAD=1'), 2),
+    '--mount': (True, None, 1),
+    '-w': (True, _exact('/workspace'), 1),
+}
 
 
 def host_access_violations(argv: list[str], image: str, workspace_root: Path) -> list[str]:
-    """Return every option before the image that could give the container host state or host namespaces."""
+    """Return every token before the image that the runner does not emit, or that is missing or repeated."""
     head = argv[:argv.index(image)]
-    problems, mounts, tmpfs = [], [], []
-    for i, token in enumerate(head):
-        name, has_value, inline = token.partition('=') if token.startswith('--') else (token, '', '')
-        value = inline if has_value else (head[i + 1] if i + 1 < len(head) else '')
-        if name in HOST_ACCESS_FLAGS or (token.startswith('-v') and not token.startswith('--')):
-            problems.append(token)
-        elif name == '--mount':
-            mounts.append(value)
-        elif name == '--tmpfs':
-            tmpfs.append(value)
-    if mounts != [f'type=bind,src={workspace_root},dst=/workspace']:
-        problems.append(f'mounts are {mounts}')
-    if len(tmpfs) != 1 or not tmpfs[0].startswith('/tmp:'):
-        problems.append(f'tmpfs mounts are {tmpfs}')
+    problems: list[str] = []
+    if len(head) < 2 or head[1] != 'run':
+        problems.append(f'the second token is {head[1:2]}, not run')
+        return problems
+    wanted_mount = f'type=bind,src={workspace_root},dst=/workspace'
+    seen: dict[str, list[str]] = {}
+    i = 2
+    while i < len(head):
+        token = head[i]
+        spec = ALLOWED_OPTIONS.get(token)
+        if spec is None:
+            problems.append(f'{token}: not an option the runner emits')
+            i += 1
+            continue
+        takes_value, accepts, _ = spec
+        if not takes_value:
+            seen.setdefault(token, []).append('')
+            i += 1
+            continue
+        if i + 1 >= len(head):
+            problems.append(f'{token}: no value')
+            break
+        value = head[i + 1]
+        if token == '--mount':
+            ok = value == wanted_mount
+        else:
+            ok = accepts(value)
+        if not ok:
+            problems.append(f'{token} {value}: value is not the one the runner emits')
+        seen.setdefault(token, []).append(value)
+        i += 2
+    for option, (_, _, times) in ALLOWED_OPTIONS.items():
+        count = len(seen.get(option, []))
+        if count != times:
+            problems.append(f'{option}: appears {count} times, expected {times}')
+    if sorted(seen.get('-e', [])) != sorted(set(seen.get('-e', []))):
+        problems.append('-e: the same environment value is set twice')
     return problems
 
 
 def real_argv(tmp_path, monkeypatch, command=('python', '-V')) -> tuple[list[str], str, Path]:
+    monkeypatch.delenv('DOCKER_HOST', raising=False)
     ws = workspace(tmp_path)
     image = 'python@sha256:' + 'a' * 64
     seen = []
@@ -160,40 +210,117 @@ def test_the_real_argument_list_gives_the_container_only_the_workspace_and_tmp(t
     assert host_access_violations(argv, image, root) == []
 
 
-@pytest.mark.parametrize('extra', [
-    ['-v', '/dev/shm:/hostshm'],
-    ['--volume=/dev/shm:/hostshm'],
-    ['-v/dev/shm:/hostshm'],
-    ['--volumes-from', 'other'],
-    ['--mount', 'type=bind,src=/dev/shm,dst=/hostshm'],
-    ['--mount', 'type=tmpfs,dst=/dev/shm'],
-    ['--tmpfs', '/dev/shm'],
-    ['--device', '/dev/mem'],
-    ['--ipc', 'host'],
-    ['--ipc=host'],
-    ['--pid=host'],
-    ['--uts', 'host'],
-    ['--userns', 'host'],
-    ['--cgroupns=host'],
-    ['--privileged'],
-    ['--cap-add', 'SYS_ADMIN'],
-], ids=lambda e: ' '.join(e))
-def test_control_an_extra_host_access_option_is_flagged(tmp_path, monkeypatch, extra):
+# Each control adds the given tokens just before the image name. The check must report a problem and
+# must name the token that does the harm, so a pass cannot come from an unrelated reason.
+EXTRA_OPTIONS = [
+    (['-v', '/dev/shm:/hostshm'], '-v'),
+    (['--volume=/dev/shm:/hostshm'], '--volume=/dev/shm:/hostshm'),
+    (['-v/dev/shm:/hostshm'], '-v/dev/shm:/hostshm'),
+    (['-itv', '/dev/shm:/hostshm'], '-itv'),
+    (['-dv', '/dev/shm:/hostshm'], '-dv'),
+    (['-tv', '/dev/shm:/hostshm'], '-tv'),
+    (['--volumes-from', 'other'], '--volumes-from'),
+    (['--mount', 'type=bind,src=/dev/shm,dst=/hostshm'], 'src=/dev/shm'),
+    (['--mount=type=bind,src=/dev/shm,dst=/hostshm'], '--mount=type=bind,src=/dev/shm,dst=/hostshm'),
+    (['--mount', 'type=tmpfs,dst=/dev/shm'], 'dst=/dev/shm'),
+    (['--tmpfs', '/dev/shm'], '/dev/shm'),
+    (['--tmpfs=/dev/shm'], '--tmpfs=/dev/shm'),
+    (['--device', '/dev/mem'], '--device'),
+    (['--device-cgroup-rule', 'a *:* rwm'], '--device-cgroup-rule'),
+    (['--ipc', 'host'], '--ipc'),
+    (['--ipc=host'], '--ipc=host'),
+    (['--pid=host'], '--pid=host'),
+    (['--uts', 'host'], '--uts'),
+    (['--userns', 'host'], '--userns'),
+    (['--cgroupns=host'], '--cgroupns=host'),
+    (['--cgroup-parent', '/'], '--cgroup-parent'),
+    (['--privileged'], '--privileged'),
+    (['--cap-add', 'SYS_ADMIN'], '--cap-add'),
+    (['--group-add', 'docker'], '--group-add'),
+    (['--gpus', 'all'], '--gpus'),
+    (['--runtime', 'other'], '--runtime'),
+    (['--add-host', 'evil:10.0.0.1'], '--add-host'),
+    (['--entrypoint', '/bin/sh'], '--entrypoint'),
+    (['--link', 'other'], '--link'),
+    (['--volume-driver', 'other'], '--volume-driver'),
+    (['--storage-opt', 'size=1T'], '--storage-opt'),
+    (['--sysctl', 'kernel.shmmax=1'], '--sysctl'),
+    (['--shm-size', '1g'], '--shm-size'),
+    (['--init'], '--init'),
+    (['--hostname', 'x'], '--hostname'),
+    (['--ulimit', 'nofile=1'], '--ulimit'),
+    (['--oom-kill-disable'], '--oom-kill-disable'),
+    (['--env-file', '/etc/environment'], '--env-file'),
+    (['-e', 'HOME'], 'HOME'),
+    (['-e', 'LD_PRELOAD=/workspace/x.so'], 'LD_PRELOAD'),
+    (['--network=host'], '--network=host'),
+    (['--network', 'host'], 'host'),
+    (['--net', 'host'], '--net'),
+    (['--security-opt', 'seccomp=unconfined'], 'seccomp=unconfined'),
+    (['--security-opt=apparmor=unconfined'], '--security-opt=apparmor=unconfined'),
+    (['--read-only=false'], '--read-only=false'),
+    (['stray-positional'], 'stray-positional'),
+]
+
+
+@pytest.mark.parametrize('extra,culprit', EXTRA_OPTIONS, ids=lambda e: ' '.join(e) if isinstance(e, list) else None)
+def test_control_an_extra_option_is_flagged(tmp_path, monkeypatch, extra, culprit):
     argv, image, root = real_argv(tmp_path, monkeypatch)
     at = argv.index(image)
-    changed = argv[:at] + extra + argv[at:]
-    assert host_access_violations(changed, image, root) != []
+    found = host_access_violations(argv[:at] + extra + argv[at:], image, root)
+    assert any(culprit in problem for problem in found), found
 
 
-def test_control_a_missing_workspace_mount_is_flagged(tmp_path, monkeypatch):
+@pytest.mark.parametrize('prefix', [['-H', 'tcp://evil:2375'], ['--host', 'tcp://evil:2375'],
+                                    ['--context', 'remote'], ['-c', 'remote']])
+def test_control_a_daemon_selecting_option_before_run_is_flagged(tmp_path, monkeypatch, prefix):
     argv, image, root = real_argv(tmp_path, monkeypatch)
-    at = argv.index('--mount')
-    assert host_access_violations(argv[:at] + argv[at + 2:], image, root) != []
+    found = host_access_violations([argv[0], *prefix, *argv[1:]], image, root)
+    assert any(prefix[0] in problem for problem in found), found
+
+
+@pytest.mark.parametrize('option', sorted(ALLOWED_OPTIONS))
+def test_control_removing_any_required_option_is_flagged(tmp_path, monkeypatch, option):
+    argv, image, root = real_argv(tmp_path, monkeypatch)
+    takes_value = ALLOWED_OPTIONS[option][0]
+    kept, skip = [], 0
+    for token in argv[:argv.index(image)]:
+        if skip:
+            skip -= 1
+        elif token == option:
+            skip = 1 if takes_value else 0
+        else:
+            kept.append(token)
+    found = host_access_violations(kept + argv[argv.index(image):], image, root)
+    assert any(option in problem for problem in found), found
+
+
+def test_control_replacing_the_tmp_tmpfs_with_another_path_is_flagged(tmp_path, monkeypatch):
+    argv, image, root = real_argv(tmp_path, monkeypatch)
+    at = argv.index('--tmpfs')
+    argv[at + 1] = '/dev/shm:rw,nosuid,nodev,size=64m'
+    found = host_access_violations(argv, image, root)
+    assert any('/dev/shm' in problem for problem in found), found
 
 
 def test_control_a_workspace_mount_of_another_directory_is_flagged(tmp_path, monkeypatch):
     argv, image, root = real_argv(tmp_path, monkeypatch)
-    assert host_access_violations(argv, image, root.parent) != []
+    found = host_access_violations(argv, image, root.parent)
+    assert any('--mount' in problem for problem in found), found
+
+
+def test_control_a_value_that_runs_into_the_image_name_is_flagged(tmp_path, monkeypatch):
+    """A dangling option must not swallow the image name and hide the problem."""
+    argv, image, root = real_argv(tmp_path, monkeypatch)
+    at = argv.index(image)
+    found = host_access_violations(argv[:at] + ['--ipc'] + argv[at:], image, root)
+    assert any('--ipc' in problem for problem in found), found
+
+
+def test_control_a_root_user_option_is_flagged(tmp_path, monkeypatch):
+    argv, image, root = real_argv(tmp_path, monkeypatch)
+    argv[argv.index('--user') + 1] = '0:0'
+    assert any('--user' in problem for problem in host_access_violations(argv, image, root))
 
 
 def test_options_of_the_test_command_after_the_image_are_not_mistaken_for_docker_options(tmp_path, monkeypatch):
