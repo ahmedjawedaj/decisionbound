@@ -1862,6 +1862,28 @@ checkout's tracked files. Interrupted runs leave records for manual cleanup.
 
 A project cannot be safely isolated or an owned worktree cannot be cleaned.
 
+### `worktree_git_dir`
+
+```python
+worktree_git_dir(workspace: Workspace) -> Path
+```
+
+Find the Git metadata directory of a managed worktree without reading anything the worktree holds.
+
+The answer comes only from the source repository's own ``worktrees/*/gitdir`` files, which the
+container cannot reach. Exactly one entry must point back at this worktree.
+
+### `git_entry_is_original`
+
+```python
+git_entry_is_original(workspace: Workspace, git_dir: Path) -> bool
+```
+
+True only while ``<worktree>/.git`` is still the regular pointer file Git wrote.
+
+Test code can replace it with a directory or a symlink. Nothing runs from it once the host passes
+``--git-dir``, but a replaced entry means the worktree was tampered with and the run is not trusted.
+
 ### `GitWorktreeManager`
 
 Own isolated worktrees and retain resumable cleanup metadata.
@@ -1965,7 +1987,7 @@ This parser deliberately rejects many valid Git diff features.
 #### `PatchValidator.check_git_modes`
 
 ```python
-check_git_modes(workspace: Path, paths: tuple[str, ...]) -> None
+check_git_modes(workspace: Path, paths: tuple[str, ...], git_dir: Path | None = None) -> None
 ```
 
 Block Git symlinks/submodules and non-regular tracked file modes.
@@ -1973,7 +1995,7 @@ Block Git symlinks/submodules and non-regular tracked file modes.
 #### `PatchValidator.apply`
 
 ```python
-apply(patch: str, workspace: Path) -> PatchInspection
+apply(patch: str, workspace: Path, git_dir: Path | None = None) -> PatchInspection
 ```
 
 Apply a validated patch to one already-created disposable worktree.
@@ -2028,8 +2050,10 @@ run(workspace: Workspace, command: tuple[str, ...], timeout_seconds: int) -> Tes
 Run a command with kernel-enforced limits; never use host shell.
 
 The caller must explicitly opt in to real container execution. Output
-is hashed rather than copied into durable execution logs; users can
-inspect test errors separately through a controlled local workflow.
+is hashed as it arrives rather than stored or copied into durable
+execution logs. A run that prints more than OUTPUT_HARD_CAP_BYTES is
+stopped and its container removed. Users can inspect test errors
+separately through a controlled local workflow.
 
 ## `decisionbound.code_execution`
 
