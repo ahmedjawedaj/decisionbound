@@ -1,7 +1,9 @@
 """Tests for the human study analysis script. Offline and fast. Uses synthetic human files only."""
 import hashlib
 import importlib.util
+import io
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -170,11 +172,13 @@ def test_a_copy_with_a_new_annotator_id_is_refused(tmp_path, capsys):
     assert "looks like a copy" in capsys.readouterr().err
 
 
-def test_same_annotator_id_is_refused(tmp_path):
+def test_same_annotator_id_is_refused(tmp_path, capsys):
     h1 = write_human(tmp_path / "h1.jsonl", {}, "H1")
-    h2 = write_human(tmp_path / "h2.jsonl", {FIRST: other_label(AI[FIRST])}, "H1")
+    h2 = Path(write_human(tmp_path / "h2.jsonl", {FIRST: other_label(AI[FIRST])}, "H1"))
+    h2.write_text(h2.read_text().replace("H1 reads", "Someone else reads"))
     with pytest.raises(SystemExit):
-        study.main(["--human", h1, "--human", h2])
+        study.main(["--human", h1, "--human", str(h2)])
+    assert "same annotator_id" in capsys.readouterr().err
 
 
 def test_three_humans_are_refused(tmp_path):
@@ -247,9 +251,10 @@ def tiny_human(path, who, labels):
     return write_jsonl(path, rows)
 
 
-def tiny_setup(tmp_path, h2=None):
+def tiny_setup(tmp_path, h2=None, repos=None):
     """Return the CLI arguments for a six case study with two repositories and two systems."""
-    scored = [{"format": "x"}] + [{"case_id": c, "label": TINY_AI[c], "source": {"repo": TINY_REPO[c]}} for c in TINY_IDS]
+    repo_of = repos or TINY_REPO
+    scored = [{"format": "x"}] + [{"case_id": c, "label": TINY_AI[c], "source": {"repo": repo_of[c]}} for c in TINY_IDS]
     results = {
         "results": [{"baseline": "sysA"}, {"method": "sysB"}],
         "per_case": [{"case_id": c, "label": TINY_AI[c], "sysA": TINY_SYS_A[c], "sysB": "abstain"} for c in TINY_IDS],
@@ -304,7 +309,7 @@ def test_part_two_scores_each_human_separately(tmp_path, capsys):
 
 def test_out_is_refused_when_it_would_overwrite_an_input(tmp_path):
     args = tiny_setup(tmp_path)
-    for flag_value in (args[1], args[5], args[9], args[11]):
+    for flag_value in args[1::2]:
         before = Path(flag_value).read_bytes()
         with pytest.raises(SystemExit) as exc:
             study.main([*args, "--out", flag_value, "--force"])
@@ -437,3 +442,118 @@ def test_headings_do_not_repeat_the_comparison_title(tmp_path, capsys):
 
 def test_macro_f1_note_is_in_the_report(tmp_path, capsys):
     assert "counts a label that is absent from the reference as 0" in tiny_run(capsys, tmp_path, reps="20")
+
+
+def test_out_through_a_hard_link_is_refused(tmp_path):
+    args = tiny_setup(tmp_path)
+    link = tmp_path / "link.md"
+    os.link(args[1], link)
+    before = Path(args[1]).read_bytes()
+    with pytest.raises(SystemExit):
+        study.main([*args, "--out", str(link), "--force"])
+    assert Path(args[1]).read_bytes() == before
+
+
+def test_out_that_is_a_directory_or_has_no_folder_gives_a_message(tmp_path, capsys):
+    args = tiny_setup(tmp_path)
+    for bad, text in ((str(tmp_path), "directory"), (str(tmp_path / "nope" / "r.md"), "does not exist")):
+        with pytest.raises(SystemExit):
+            study.main([*args, "--out", bad])
+        assert text in capsys.readouterr().err
+
+
+def test_input_that_is_not_json_gives_a_message(tmp_path, capsys):
+    args = tiny_setup(tmp_path)
+    Path(args[1]).write_text("not json\n")
+    with pytest.raises(SystemExit) as exc:
+        study.main(args)
+    assert exc.value.code == 2 and "cannot read an input file" in capsys.readouterr().err
+
+
+def two_humans_sharing(tmp_path, n_shared, suffix=""):
+    """Second human copies the first human's rationale on the first n cases, and writes their own on the rest."""
+    h1 = Path(write_human(tmp_path / "h1.jsonl", {}, "H1"))
+    lines = h1.read_text().replace('"annotator_id": "H1"', '"annotator_id": "H2"').splitlines()
+    for i in range(1 + n_shared, len(lines)):
+        lines[i] = lines[i].replace("H1 reads", "H2 sees")
+    if suffix:
+        for i in range(1, 1 + n_shared):
+            row = json.loads(lines[i])
+            row["rationale"] = row["rationale"].upper() + suffix
+            lines[i] = json.dumps(row)
+    h2 = tmp_path / "h2.jsonl"
+    h2.write_text("\n".join(lines) + "\n")
+    return str(h1), str(h2)
+
+
+def test_copy_guard_threshold_is_exactly_half(tmp_path, capsys):
+    h1, h2 = two_humans_sharing(tmp_path, 20)
+    with pytest.raises(SystemExit):
+        study.main(["--human", h1, "--human", h2])
+    assert "20 of 40" in capsys.readouterr().err
+    h1, h2 = two_humans_sharing(tmp_path, 19)
+    assert study.main(["--reps", "20", "--human", h1, "--human", h2]) == 0
+
+
+def test_copy_guard_ignores_case_and_punctuation(tmp_path, capsys):
+    h1, h2 = two_humans_sharing(tmp_path, 40, suffix=" .")
+    with pytest.raises(SystemExit):
+        study.main(["--human", h1, "--human", h2])
+    assert "looks like a copy" in capsys.readouterr().err
+
+
+def test_copy_guard_can_be_overridden(tmp_path, capsys):
+    h1, h2 = two_humans_sharing(tmp_path, 25)
+    assert study.main(["--reps", "20", "--human", h1, "--human", h2, "--allow-similar-rationales"]) == 0
+
+
+def test_report_is_written_even_when_the_console_cannot_show_it(tmp_path, monkeypatch):
+    args = tiny_setup(tmp_path)
+    h1 = Path(args[1])
+    h1.write_text(h1.read_text().replace("H1 on t3", "H1 lit: \u0627\u0631\u062f\u0648"), encoding="utf-8")
+    raw = io.BytesIO()
+    monkeypatch.setattr(sys, "stdout", io.TextIOWrapper(raw, encoding="cp1252", errors="strict", write_through=True))
+    target = tmp_path / "r.md"
+    assert study.main(["--reps", "20", *args, "--out", str(target)]) == 0
+    assert "\u0627\u0631\u062f\u0648" in target.read_text(encoding="utf-8")
+    assert b"# Human study analysis" in raw.getvalue()
+
+
+def mirror_interval(repos, gold, preds, reps, seed):
+    """An independent copy of the documented method: resample whole repositories, seed fixed."""
+    import random
+    rng = random.Random(seed)
+    keys = sorted(set(repos))
+    vals = []
+    for _ in range(reps):
+        picked = [rng.choice(keys) for _ in keys]
+        idx = [i for k in picked for i, r in enumerate(repos) if r == k]
+        vals.append(sum(gold[i] == preds[i] for i in idx) / len(idx))
+    vals.sort()
+    return round(vals[int(0.025 * reps)], 3), round(vals[int(0.975 * reps) - 1], 3)
+
+
+SIX_REPOS = {c: f"r{i}" for i, c in enumerate(TINY_IDS, 1)}
+
+
+@pytest.mark.parametrize("reps,seed", [(40, 17), (40, 5), (40, 99), (15, 17), (15, 5), (200, 17)])
+def test_interval_matches_an_independent_resampler(tmp_path, capsys, reps, seed):
+    """Six repositories give enough distinct resamples for the seed and the resample count to matter."""
+    args = tiny_setup(tmp_path, repos=SIX_REPOS)
+    assert study.main(["--reps", str(reps), "--seed", str(seed), *args]) == 0
+    part5 = section(capsys.readouterr().out, "## Part 5")
+    repos = [SIX_REPOS[c] for c in TINY_IDS]
+    gold = [TINY_HUMAN[c] for c in TINY_IDS]
+    for name, preds in (("sysA", [TINY_SYS_A[c] for c in TINY_IDS]), ("sysB", ["abstain"] * 6)):
+        lo, hi = mirror_interval(repos, gold, preds, reps, seed)
+        row = next(l for l in part5.splitlines() if l.startswith(f"| {name} |"))
+        assert row.endswith(f"| {lo:.3f} to {hi:.3f} |"), (row, lo, hi)
+
+
+def test_the_fixture_distinguishes_seeds_and_resample_counts():
+    """Guards the test above. If these intervals were all equal the test could not catch a wrong seed."""
+    repos = [SIX_REPOS[c] for c in TINY_IDS]
+    gold = [TINY_HUMAN[c] for c in TINY_IDS]
+    preds = [TINY_SYS_A[c] for c in TINY_IDS]
+    found = {mirror_interval(repos, gold, preds, r, s) for r, s in [(40, 17), (40, 5), (15, 17), (15, 5), (2000, 17)]}
+    assert len(found) >= 2

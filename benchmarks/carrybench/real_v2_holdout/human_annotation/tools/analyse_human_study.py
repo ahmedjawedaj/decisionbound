@@ -15,12 +15,20 @@ When two humans are given, the reference for part 5 is the set of cases where th
 the same four-way label. With one human it is that human's labels, and the report says so.
 The frozen AI labels, the AI draft and the stored system predictions are only read.
 
-    python3 -I analyse_human_study.py --human labels_H1.jsonl [--human labels_H2.jsonl] [--out report.md]
+    python3 -I analyse_human_study.py --human labels_H1.jsonl [--human labels_H2.jsonl] [--out report.md] [--force]
+        [--allow-similar-rationales]
+
+`--out` must be a new file outside the holdout directory and not an input, even through a link.
+`--force` only lets it replace an earlier report. Two human files that give the same rationale on
+half the cases or more are refused as a likely copy, after ignoring case and punctuation. That
+check is a heuristic and not proof. `--allow-similar-rationales` overrides it when you know the
+files are independent.
 """
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from collections import Counter
@@ -39,6 +47,11 @@ SPECIAL = checker.SPECIAL
 DEFAULT_AI_DRAFT = HOLDOUT / "annotations" / "ai_other_family" / "labels_gpt6_ai_draft_v1_1.jsonl"
 DEFAULT_RESULTS = (HOLDOUT / "results" / "baselines_v2_holdout.json",
                    HOLDOUT / "results" / "decisionbound_v2_holdout.json")
+
+
+def _norm(text) -> str:
+    """Lower case and drop punctuation, so a copy cannot dodge the check by adding a full stop."""
+    return re.sub(r"[\W_]+", " ", str(text).lower()).strip()
 
 
 def _esc(text) -> str:
@@ -204,6 +217,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--seed", type=int, default=17)
     ap.add_argument("--out", default="", help="also write the report to this new file")
     ap.add_argument("--force", action="store_true", help="let --out replace an existing file that is not an input")
+    ap.add_argument("--allow-similar-rationales", action="store_true", help="skip the likely-copy check on two human files")
     args = ap.parse_args(argv)
     if len(args.human) > 2:
         ap.error("give one or two human files")
@@ -216,24 +230,31 @@ def main(argv: list[str] | None = None) -> int:
             ap.error(f"cannot read {p}")
     if args.out:
         out_path = Path(args.out).resolve()
-        if out_path in {p.resolve() for p in inputs}:
-            ap.error("--out is one of the input files and would overwrite it")
+        if out_path in {p.resolve() for p in inputs} or (out_path.exists() and any(os.path.samefile(out_path, p) for p in inputs)):
+            ap.error("--out is one of the input files, or a link to one, and would overwrite it")
+        if out_path.is_dir():
+            ap.error("--out is a directory. Give a file name")
+        if not out_path.parent.is_dir():
+            ap.error("the folder for --out does not exist")
         if HOLDOUT.resolve() in out_path.parents:
             ap.error("--out is inside the holdout directory. Write the report somewhere else so the frozen files stay as they are")
         if out_path.exists() and not args.force:
             ap.error("--out already exists. Pick a new name or pass --force")
-    ids = checker._case_ids(args.cases)
-    humans = [cmp.load_human(Path(p), ids) for p in args.human]
+    try:
+        ids = checker._case_ids(args.cases)
+        humans = [cmp.load_human(Path(p), ids) for p in args.human]
+        draft = cmp.load_human(Path(args.ai_draft), ids)
+    except (ValueError, OSError) as e:
+        ap.error(f"cannot read an input file as JSON Lines: {e}")
     who = [h.get("annotator_id") for h, _ in humans]
     if len(set(who)) != len(who):
         ap.error(f"the two human files use the same annotator_id ({who[0]}). Each human needs their own id")
-    if len(humans) == 2:
+    if len(humans) == 2 and not args.allow_similar_rationales:
         (_, l1), (_, l2) = humans
-        same = sum(1 for c in l1 if l1[c].get("rationale", "").strip() == l2[c].get("rationale", "").strip())
+        same = sum(1 for c in l1 if _norm(l1[c].get("rationale", "")) == _norm(l2[c].get("rationale", "")))
         if same * 2 >= len(l1):
             ap.error(f"the two human files give the same rationale on {same} of {len(l1)} cases, so one looks like a copy of the other. "
-                     "Each human must label the packet on their own")
-    draft = cmp.load_human(Path(args.ai_draft), ids)
+                     "Each human must label the packet on their own. If you know they did, pass --allow-similar-rationales")
     text = report(humans, draft, cmp.load_cases(Path(args.scored)), cmp.load_cases(Path(args.excluded)),
                   load_systems(results), args.reps, args.seed)
     if args.out:
