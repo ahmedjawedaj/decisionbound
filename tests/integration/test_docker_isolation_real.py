@@ -123,6 +123,7 @@ def test_control_an_explicit_env_value_or_socket_mount_is_seen_by_the_probe():
 
 # Mount points the daemon always adds from its own files, and file systems that are not disk backed.
 # A bind of a tmpfs-backed host directory (for example /dev/shm) looks like tmpfs here and is not detected.
+# The runner's argument list is checked separately in tests/security/test_code_sandbox.py (issue 20, still open).
 DAEMON_FILE_MOUNTS = ("/etc/hostname", "/etc/hosts", "/etc/resolv.conf")
 NO_HOST_PATH_IS_MOUNTED_EXCEPT_THE_WORKSPACE = (
     "import sys\n"
