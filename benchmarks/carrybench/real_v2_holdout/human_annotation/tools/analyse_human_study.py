@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from collections import Counter
 from pathlib import Path
@@ -38,7 +39,6 @@ SPECIAL = checker.SPECIAL
 DEFAULT_AI_DRAFT = HOLDOUT / "annotations" / "ai_other_family" / "labels_gpt6_ai_draft_v1_1.jsonl"
 DEFAULT_RESULTS = (HOLDOUT / "results" / "baselines_v2_holdout.json",
                    HOLDOUT / "results" / "decisionbound_v2_holdout.json")
-NOT_A_SYSTEM = {"case_id", "label"}
 
 
 def _esc(text) -> str:
@@ -69,35 +69,55 @@ def reference_labels(humans: list[tuple[dict, dict[str, dict]]]) -> tuple[dict[s
     return ref, how, disputed, special
 
 
-def load_systems(paths: list[Path]) -> list[tuple[str, list[dict]]]:
+def load_systems(paths: list[Path]) -> list[tuple[str, list[str], list[dict]]]:
+    """Read result files. System names come from the file's own `results` section."""
     out = []
     for p in paths:
         data = json.loads(Path(p).read_text(encoding="utf-8"))
-        out.append((Path(p).name, data["per_case"]))
+        names = sorted({r.get("baseline") or r.get("method") for r in data["results"]} - {None})
+        out.append((Path(p).name, names, data["per_case"]))
     return out
 
 
-def rescore(per_case_sets: list[tuple[str, list[dict]]], ref: dict[str, str],
+def check_result_shape(fname: str, systems: list[str], rows: list[dict], scored: dict[str, dict]) -> None:
+    """Refuse a result file that does not line up with the scored cases, instead of scoring part of it."""
+    ids = [r["case_id"] for r in rows]
+    dupes = sorted(c for c, n in Counter(ids).items() if n > 1)
+    if dupes:
+        raise SystemExit(f"{fname} lists a case more than once: {dupes[:5]}")
+    unknown = sorted(set(ids) - set(scored))
+    if unknown:
+        raise SystemExit(f"{fname} has predictions for cases that are not in the scored file: {unknown[:5]}")
+    absent = sorted(set(scored) - set(ids))
+    if absent:
+        raise SystemExit(f"{fname} has no predictions for {len(absent)} scored case(s): {absent[:5]}")
+    if not systems:
+        raise SystemExit(f"{fname} names no systems in its results section")
+    for r in rows:
+        gone = [s for s in systems if s not in r]
+        if gone:
+            raise SystemExit(f"{fname} has no prediction by {gone[:3]} for {r['case_id']}")
+
+
+def rescore(per_case_sets: list[tuple[str, list[str], list[dict]]], ref: dict[str, str],
             scored: dict[str, dict], reps: int, seed: int) -> list[str]:
     out: list[str] = []
-    for fname, rows in per_case_sets:
-        rows = [r for r in rows if r["case_id"] in ref]
+    for fname, systems, all_rows in per_case_sets:
+        check_result_shape(fname, systems, all_rows, scored)
+        rows = [r for r in all_rows if r["case_id"] in ref]
         if not rows:
             out += [f"No case in `{fname}` has a reference label, so nothing was re-scored.", ""]
             continue
-        missing = [r["case_id"] for r in rows if r["case_id"] not in scored]
-        if missing:
-            raise SystemExit(f"{fname} has predictions for cases that are not in the scored file: {missing[:5]}")
         gold_h = [ref[r["case_id"]] for r in rows]
-        gold_ai = [r["label"] for r in rows]
-        systems = sorted({k for r in rows for k in r} - NOT_A_SYSTEM)
+        gold_ai = [scored[r["case_id"]]["label"] for r in rows]
         preds = {s: [r[s] for r in rows] for s in systems}
         cases_for_ci = [{"label": g, "source": scored[r["case_id"]]["source"]} for g, r in zip(gold_h, rows)]
         ci = ev.cluster_bootstrap(cases_for_ci, preds, reps, seed)
         out += [f"### Systems in `{fname}`", "",
                 f"{len(rows)} cases. Label counts against the human reference: "
                 + ", ".join(f"{k} {v}" for k, v in sorted(Counter(gold_h).items())) + ". "
-                f"The AI columns use the frozen AI label of the same {len(rows)} cases, so the two accuracy columns are comparable.", "",
+                f"The AI columns use the frozen AI label of the same {len(rows)} cases, so the two accuracy columns are comparable. "
+                "Macro F1 counts a label that is absent from the reference as 0, so a system can score below 1 even when every prediction is right.", "",
                 "| system | accuracy vs AI labels | accuracy vs human | difference | macro F1 vs human | 95% interval (accuracy vs human) |",
                 "|---|---|---|---|---|---|"]
         for s in systems:
@@ -120,7 +140,9 @@ def report(humans, draft, scored, excluded, per_case_sets, reps, seed) -> str:
                     "This file is not blind, so its agreement with the AI labels is not independent.**", ""]
 
     # 1 and 3 reuse the existing comparison so the numbers cannot drift from compare_labels.py
-    out += [cmp.report(humans, scored, excluded).replace("# Human label comparison", "## Parts 1 and 3: against the frozen AI pair and against each other", 1), ""]
+    body = re.sub(r"^## ", "### ", cmp.report(humans, scored, excluded).split("\n", 4)[4], flags=re.M)
+    out += ["## " + ("Parts 1 and 3: against the frozen AI pair and against each other" if len(humans) == 2
+                      else "Part 1: against the frozen AI pair"), "", body, ""]
 
     # 2 second-family AI draft
     d_header, d_labels = draft
@@ -134,7 +156,7 @@ def report(humans, draft, scored, excluded, per_case_sets, reps, seed) -> str:
     # 4 every contested case
     out += ["## Part 4: every case where any rater differs", ""]
     ids = sorted(set.intersection(*(set(l) for _, l in humans)))
-    head = ["case"] + [h.get("annotator_id", "?") for h, _ in humans] + ["AI A", "AI B", "AI draft"]
+    head = ["case"] + [_esc(h.get("annotator_id", "?")) for h, _ in humans] + ["AI A", "AI B", "AI draft"]
     rows = []
     for cid in ids:
         ai = scored[cid]["label"] if cid in scored else None
@@ -180,25 +202,46 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--excluded", default=str(HOLDOUT / "excluded_v2_holdout.jsonl"))
     ap.add_argument("--reps", type=int, default=2000)
     ap.add_argument("--seed", type=int, default=17)
-    ap.add_argument("--out", default="", help="also write the report to this file")
+    ap.add_argument("--out", default="", help="also write the report to this new file")
+    ap.add_argument("--force", action="store_true", help="let --out replace an existing file that is not an input")
     args = ap.parse_args(argv)
     if len(args.human) > 2:
         ap.error("give one or two human files")
+    if args.reps < 1:
+        ap.error("--reps must be at least 1")
+    results = [Path(p) for p in (args.results or DEFAULT_RESULTS)]
+    inputs = [Path(p) for p in (*args.human, args.ai_draft, args.scored, args.cases, args.excluded)] + results
+    for p in inputs:
+        if not p.is_file():
+            ap.error(f"cannot read {p}")
+    if args.out:
+        out_path = Path(args.out).resolve()
+        if out_path in {p.resolve() for p in inputs}:
+            ap.error("--out is one of the input files and would overwrite it")
+        if HOLDOUT.resolve() in out_path.parents:
+            ap.error("--out is inside the holdout directory. Write the report somewhere else so the frozen files stay as they are")
+        if out_path.exists() and not args.force:
+            ap.error("--out already exists. Pick a new name or pass --force")
     ids = checker._case_ids(args.cases)
     humans = [cmp.load_human(Path(p), ids) for p in args.human]
-    if len(humans) == 2 and humans[0][1] == humans[1][1]:
-        ap.error("the two human files have identical rows for every case, so one looks like a copy of the other. "
-                 "Each human must label the packet on their own")
     who = [h.get("annotator_id") for h, _ in humans]
     if len(set(who)) != len(who):
         ap.error(f"the two human files use the same annotator_id ({who[0]}). Each human needs their own id")
+    if len(humans) == 2:
+        (_, l1), (_, l2) = humans
+        same = sum(1 for c in l1 if l1[c].get("rationale", "").strip() == l2[c].get("rationale", "").strip())
+        if same * 2 >= len(l1):
+            ap.error(f"the two human files give the same rationale on {same} of {len(l1)} cases, so one looks like a copy of the other. "
+                     "Each human must label the packet on their own")
     draft = cmp.load_human(Path(args.ai_draft), ids)
-    results = [Path(p) for p in (args.results or DEFAULT_RESULTS)]
     text = report(humans, draft, cmp.load_cases(Path(args.scored)), cmp.load_cases(Path(args.excluded)),
                   load_systems(results), args.reps, args.seed)
-    print(text)
     if args.out:
         Path(args.out).write_text(text + "\n", encoding="utf-8")
+    reconfigure = getattr(sys.stdout, "reconfigure", None)
+    if reconfigure:
+        reconfigure(encoding="utf-8", errors="replace")
+    print(text)
     return 0
 
 

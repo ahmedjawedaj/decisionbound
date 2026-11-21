@@ -71,7 +71,10 @@ def test_two_humans_who_match_the_ai_pair_change_no_system_score(tmp_path, capsy
     assert "It holds 40 of 40 cases." in part5
     assert "34 cases" not in part5 and "35 cases" in part5
     rows = [line for line in part5.splitlines() if line.startswith("| ") and "accuracy" not in line and "---" not in line]
-    assert len(rows) >= 14
+    shown = sorted(r.split("|")[1].strip() for r in rows)
+    expected = sorted(name for p in study.DEFAULT_RESULTS for r in json.loads(p.read_text())["results"]
+                      for name in [r.get("baseline") or r.get("method")])
+    assert shown == expected
     assert all(r.split("|")[4].strip() == "+0.000" for r in rows)
 
 
@@ -189,9 +192,10 @@ def test_incomplete_human_file_is_refused(tmp_path):
 
 
 def test_prediction_for_unknown_case_is_refused():
-    bad = [("x.json", [{"case_id": "cbh-999", "label": "abstain", "always": "abstain"}])]
-    with pytest.raises(SystemExit):
+    bad = [("x.json", ["always"], [{"case_id": "cbh-999", "label": "abstain", "always": "abstain"}])]
+    with pytest.raises(SystemExit) as exc:
         study.rescore(bad, {"cbh-999": "abstain"}, SCORED, 10, 1)
+    assert "not in the scored file" in str(exc.value)
 
 
 def test_out_file_matches_printed_report_and_inputs_are_untouched(tmp_path, capsys):
@@ -217,3 +221,219 @@ def test_reference_labels_unit():
     assert "both humans" in how
     one, how1, d1, s1 = study.reference_labels([human(a="apply", b="no_signal")])
     assert one == {"a": "apply"} and s1 == ["b"] and d1 == [] and "single human" in how1
+
+
+# ---- a small hand-computed fixture ----------------------------------------------------------------
+TINY_IDS = ["t1", "t2", "t3", "t4", "t5", "t6"]
+TINY_REPO = {"t1": "R1", "t2": "R1", "t3": "R1", "t4": "R2", "t5": "R2", "t6": "R2"}
+TINY_AI = {"t1": "apply", "t2": "abstain", "t3": "abstain", "t4": "escalate", "t5": "translate", "t6": "abstain"}
+TINY_HUMAN = {"t1": "apply", "t2": "abstain", "t3": "apply", "t4": "escalate", "t5": "translate", "t6": "escalate"}
+TINY_SYS_A = {"t1": "apply", "t2": "abstain", "t3": "apply", "t4": "escalate", "t5": "abstain", "t6": "escalate"}
+
+
+def write_jsonl(path, rows):
+    path.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+    return str(path)
+
+
+def tiny_human(path, who, labels):
+    rows = [{"annotator_id": who, "saw_ai_labels": False, "background": "engineer", "guide": "v1.1"}]
+    for cid in TINY_IDS:
+        label = labels[cid]
+        rows.append({
+            "case_id": cid, "label": label, "allowed": None, "confidence": 0.7, "strength": "medium",
+            "deciding_tier": "T2", "rationale": f"{who} on {cid}", "translated_rule": "rule" if label == "translate" else None,
+            "invalid_reason": None, "read_beyond_pointers": False, "notes": None})
+    return write_jsonl(path, rows)
+
+
+def tiny_setup(tmp_path, h2=None):
+    """Return the CLI arguments for a six case study with two repositories and two systems."""
+    scored = [{"format": "x"}] + [{"case_id": c, "label": TINY_AI[c], "source": {"repo": TINY_REPO[c]}} for c in TINY_IDS]
+    results = {
+        "results": [{"baseline": "sysA"}, {"method": "sysB"}],
+        "per_case": [{"case_id": c, "label": TINY_AI[c], "sysA": TINY_SYS_A[c], "sysB": "abstain"} for c in TINY_IDS],
+    }
+    res = tmp_path / "res.json"
+    res.write_text(json.dumps(results))
+    draft = tiny_human(tmp_path / "draft.jsonl", "draft", {c: "abstain" for c in TINY_IDS})
+    h1 = tiny_human(tmp_path / "h1.jsonl", "H1", TINY_HUMAN)
+    h2p = tiny_human(tmp_path / "h2.jsonl", "H2", h2 or TINY_HUMAN)
+    return ["--human", h1, "--human", h2p, "--ai-draft", draft, "--results", str(res),
+            "--scored", write_jsonl(tmp_path / "scored.jsonl", scored),
+            "--cases", write_jsonl(tmp_path / "cases.jsonl", [{"case_id": c} for c in TINY_IDS]),
+            "--excluded", write_jsonl(tmp_path / "excluded.jsonl", [{"note": "none"}])]
+
+
+def tiny_run(capsys, tmp_path, h2=None, reps="200"):
+    assert study.main(["--reps", reps, *tiny_setup(tmp_path, h2)]) == 0
+    return capsys.readouterr().out
+
+
+def test_exact_scores_on_the_hand_computed_fixture(tmp_path, capsys):
+    part5 = section(tiny_run(capsys, tmp_path), "## Part 5")
+    rows = {r.split("|")[1].strip(): [c.strip() for c in r.split("|")[2:-1]]
+            for r in part5.splitlines() if r.startswith(("| sysA |", "| sysB |"))}
+    assert sorted(rows) == ["sysA", "sysB"]
+    # accuracy vs AI, accuracy vs human, difference, macro F1 vs human
+    assert rows["sysA"][:4] == ["0.500", "0.833", "+0.333", "0.667"]
+    assert rows["sysB"][:4] == ["0.500", "0.167", "-0.333", "0.071"]
+    assert "6 cases. Label counts against the human reference: abstain 1, apply 2, escalate 2, translate 1." in part5
+
+
+def test_interval_comes_from_resampling_whole_repositories(tmp_path, capsys):
+    """With two repositories only four resamples exist, so each bound must be one of their accuracies."""
+    part5 = section(tiny_run(capsys, tmp_path), "## Part 5")
+    allowed = {"sysA": {0.667, 0.833, 1.0}, "sysB": {0.0, 0.167, 0.333}}
+    for line in part5.splitlines():
+        if line.startswith(("| sysA |", "| sysB |")):
+            cells = [c.strip() for c in line.split("|")[1:-1]]
+            lo, hi = (float(v) for v in cells[5].split(" to "))
+            assert lo <= hi
+            assert lo in allowed[cells[0]] and hi in allowed[cells[0]], line
+    again = section(tiny_run(capsys, tmp_path), "## Part 5")
+    assert again == part5
+
+
+def test_part_two_scores_each_human_separately(tmp_path, capsys):
+    h2 = dict(TINY_HUMAN, t5="abstain")
+    part2 = section(tiny_run(capsys, tmp_path, h2=h2), "## Part 2", "## Part 4")
+    assert "H1 against the draft on 6 cases: four-way 1/6 (17%)" in part2
+    assert "H2 against the draft on 6 cases: four-way 2/6 (33%)" in part2
+
+
+def test_out_is_refused_when_it_would_overwrite_an_input(tmp_path):
+    args = tiny_setup(tmp_path)
+    for flag_value in (args[1], args[5], args[9], args[11]):
+        before = Path(flag_value).read_bytes()
+        with pytest.raises(SystemExit) as exc:
+            study.main([*args, "--out", flag_value, "--force"])
+        assert exc.value.code == 2
+        assert Path(flag_value).read_bytes() == before
+
+
+def test_out_is_refused_inside_the_holdout_directory(tmp_path):
+    target = HOLD / "must_not_be_written.md"
+    target.unlink(missing_ok=True)
+    try:
+        with pytest.raises(SystemExit):
+            study.main([*tiny_setup(tmp_path), "--out", str(target)])
+        assert not target.exists()
+    finally:
+        target.unlink(missing_ok=True)
+
+
+def test_out_will_not_replace_an_existing_file_without_force(tmp_path, capsys):
+    args = tiny_setup(tmp_path)
+    target = tmp_path / "report.md"
+    target.write_text("keep me")
+    with pytest.raises(SystemExit):
+        study.main(["--reps", "20", *args, "--out", str(target)])
+    assert target.read_text() == "keep me"
+    assert study.main(["--reps", "20", *args, "--out", str(target), "--force"]) == 0
+    assert target.read_text().startswith("# Human study analysis")
+
+
+def test_report_file_is_written_as_utf8(tmp_path, capsys):
+    args = tiny_setup(tmp_path)
+    h1 = Path(args[1])
+    h1.write_text(h1.read_text().replace("H1 on t3", "H1 lit: \u0627\u0631\u062f\u0648 \u00e9"), encoding="utf-8")
+    target = tmp_path / "r.md"
+    assert study.main(["--reps", "20", *args, "--out", str(target)]) == 0
+    capsys.readouterr()
+    assert "\u0627\u0631\u062f\u0648" in target.read_text(encoding="utf-8")
+
+
+def test_copy_with_one_changed_rationale_is_still_refused(tmp_path, capsys):
+    h = write_human(tmp_path / "h.jsonl", {}, "H1")
+    lines = Path(h).read_text().replace('"annotator_id": "H1"', '"annotator_id": "H2"').splitlines()
+    lines[5] = lines[5].replace("H1 reads", "H1 sees")
+    copy = tmp_path / "copy.jsonl"
+    copy.write_text("\n".join(lines) + "\n")
+    with pytest.raises(SystemExit):
+        study.main(["--human", h, "--human", str(copy)])
+    assert "looks like a copy" in capsys.readouterr().err
+
+
+def test_two_humans_who_write_their_own_rationales_are_accepted(tmp_path, capsys):
+    out = tiny_run(capsys, tmp_path, reps="20")
+    assert "No disagreements between the two humans." in out
+
+
+def test_missing_input_file_and_zero_reps_give_a_message(tmp_path, capsys):
+    with pytest.raises(SystemExit) as exc:
+        study.main(["--human", str(tmp_path / "nope.jsonl")])
+    assert exc.value.code == 2 and "cannot read" in capsys.readouterr().err
+    with pytest.raises(SystemExit) as exc:
+        study.main(["--reps", "0", *tiny_setup(tmp_path)])
+    assert exc.value.code == 2
+
+
+def test_result_file_that_does_not_line_up_is_refused(tmp_path):
+    base = {"results": [{"baseline": "sysA"}],
+            "per_case": [{"case_id": c, "label": TINY_AI[c], "sysA": "abstain"} for c in TINY_IDS]}
+    scored = {c: {"label": TINY_AI[c], "source": {"repo": TINY_REPO[c]}} for c in TINY_IDS}
+    ref = dict(TINY_HUMAN)
+
+    def run_with(**changes):
+        data = json.loads(json.dumps(base))
+        for key, value in changes.items():
+            data[key] = value(data[key])
+        return study.rescore([("f.json", [r.get("baseline") or r.get("method") for r in data["results"]], data["per_case"])], ref, scored, 5, 1)
+
+    assert run_with()
+    for change, text in (
+        (dict(per_case=lambda rows: rows + [rows[0]]), "more than once"),
+        (dict(per_case=lambda rows: rows[:-2]), "no predictions for 2 scored case"),
+        (dict(per_case=lambda rows: [{k: v for k, v in rows[0].items() if k != "sysA"}] + rows[1:]), "no prediction by"),
+        (dict(results=lambda r: []), "names no systems"),
+    ):
+        with pytest.raises(SystemExit) as exc:
+            run_with(**change)
+        assert text in str(exc.value)
+
+
+def test_extra_fields_in_a_result_row_are_not_systems(tmp_path, capsys):
+    args = tiny_setup(tmp_path)
+    res = Path(args[args.index("--results") + 1])
+    data = json.loads(res.read_text())
+    for r in data["per_case"]:
+        r["family"] = "x"
+    res.write_text(json.dumps(data))
+    part5 = section(study.main(["--reps", "20", *args]) == 0 and capsys.readouterr().out, "## Part 5")
+    assert "| family |" not in part5 and "| label |" not in part5 and "| sysA |" in part5
+
+
+def test_the_ai_column_uses_the_frozen_label_not_the_stored_row_label(tmp_path, capsys):
+    args = tiny_setup(tmp_path)
+    res = Path(args[args.index("--results") + 1])
+    data = json.loads(res.read_text())
+    for r in data["per_case"]:
+        r["label"] = "apply"
+    res.write_text(json.dumps(data))
+    part5 = section(study.main(["--reps", "20", *args]) == 0 and capsys.readouterr().out, "## Part 5")
+    sys_a = next(l for l in part5.splitlines() if l.startswith("| sysA |")).split("|")
+    assert sys_a[2].strip() == "0.500"
+
+
+def test_annotator_id_with_a_pipe_does_not_break_the_table(tmp_path, capsys):
+    args = tiny_setup(tmp_path)
+    h1 = Path(args[1])
+    h1.write_text(h1.read_text().replace('"annotator_id": "H1"', '"annotator_id": "A|B"'))
+    h2 = dict(TINY_HUMAN, t1="abstain")
+    tiny_human(Path(args[3]), "H2", h2)
+    out = section(study.main(["--reps", "20", *args]) == 0 and capsys.readouterr().out, "## Part 4", "## Part 5")
+    header = next(l for l in out.splitlines() if l.startswith("| case |"))
+    assert header.count("|") == next(l for l in out.splitlines() if l.startswith("| t1 |")).count("|")
+
+
+def test_headings_do_not_repeat_the_comparison_title(tmp_path, capsys):
+    out = tiny_run(capsys, tmp_path, reps="20")
+    assert out.count("Generated by") == 1
+    assert "## Parts 1 and 3" in out and "### H1 against the frozen AI labels" in out
+    one = run(capsys, "--human", write_human(tmp_path / "solo.jsonl", {}, "H1"))
+    assert "## Part 1: against the frozen AI pair" in one and "Parts 1 and 3" not in one
+
+
+def test_macro_f1_note_is_in_the_report(tmp_path, capsys):
+    assert "counts a label that is absent from the reference as 0" in tiny_run(capsys, tmp_path, reps="20")
