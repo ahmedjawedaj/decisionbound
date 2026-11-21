@@ -162,27 +162,36 @@ class PatchValidator:
             raise UnsafePatch('Incomplete Git patch')
         return PatchInspection(tuple(paths), added, removed, hashlib.sha256(encoded).hexdigest(), len(encoded))
 
-    def check_git_modes(self, workspace: Path, paths: tuple[str, ...]) -> None:
+    @staticmethod
+    def _git_prefix(workspace: Path, git_dir: Path | None) -> list[str]:
+        """Git options for a worktree. With ``git_dir`` Git ignores ``<worktree>/.git`` and its config."""
+        prefix = ['git', '-C', str(workspace)]
+        if git_dir is not None:
+            prefix += ['--git-dir', str(git_dir), '--work-tree', str(workspace), '-c', 'core.fsmonitor=false']
+        return prefix + ['-c', 'core.hooksPath=/dev/null']
+
+    def check_git_modes(self, workspace: Path, paths: tuple[str, ...], git_dir: Path | None = None) -> None:
         """Block Git symlinks/submodules and non-regular tracked file modes."""
         for path in paths:
-            proc = subprocess.run(['git', '-C', str(workspace), 'ls-files', '--stage', '--', path],
+            proc = subprocess.run([*self._git_prefix(workspace, git_dir), 'ls-files', '--stage', '--', path],
                                   text=True, capture_output=True, check=True, timeout=15)
             for line in proc.stdout.splitlines():
                 mode = line.split(' ', 1)[0]
                 if mode != '100644':
                     raise UnsafePatch('Tracked target is not a regular non-executable file')
 
-    def apply(self, patch: str, workspace: Path) -> PatchInspection:
+    def apply(self, patch: str, workspace: Path, git_dir: Path | None = None) -> PatchInspection:
         """Apply a validated patch to one already-created disposable worktree.
 
         Calls Git only with fixed executable arguments and stdin patch bytes;
         never interpolates model-controlled text into a shell command.
         """
         inspection = self.inspect(patch, workspace)
-        self.check_git_modes(workspace, inspection.paths)
-        command = ['git', '-C', str(workspace), 'apply', '--whitespace=error', '--']
+        self.check_git_modes(workspace, inspection.paths, git_dir)
+        prefix = self._git_prefix(workspace, git_dir)
+        command = [*prefix, 'apply', '--whitespace=error', '--']
         data = patch.encode('utf-8')
-        check = subprocess.run(command[:4] + ['--check'] + command[4:], input=data,
+        check = subprocess.run([*prefix, 'apply', '--check', '--whitespace=error', '--'], input=data,
                                capture_output=True, timeout=20)
         if check.returncode != 0:
             raise UnsafePatch('Git rejected patch preflight')
