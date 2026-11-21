@@ -322,7 +322,7 @@ def test_the_git_entry_check_accepts_only_the_original_pointer_file(project, tmp
 
 
 def test_a_core_worktree_in_the_source_config_does_not_move_the_work_tree(project, tmp_path):
-    """--work-tree is passed explicitly, so a core.worktree setting cannot point host Git somewhere else."""
+    """Defense in depth: --work-tree is explicit, and a core.worktree setting must not break the host diff."""
     ws = make_workspace(project)
     other = tmp_path / 'other'
     other.mkdir()
@@ -342,3 +342,15 @@ def test_patch_git_calls_forward_the_users_line_ending_settings(project, monkeyp
     PatchValidator().apply(PATCH, Path(ws.path), git_dir=worktree_git_dir(ws))
     patch_calls = [argv for argv in calls if 'apply' in argv or 'ls-files' in argv]
     assert len(patch_calls) == 3 and all('core.autocrlf=true' in argv for argv in patch_calls)
+
+
+def test_patch_git_calls_do_not_read_line_endings_from_a_planted_config(project, tmp_path, monkeypatch):
+    ws = make_workspace(project)
+    plant(ws, tmp_path / 'ran', extra_config='\teol = crlf\n\tautocrlf = true\n')
+    calls, real = [], subprocess.run
+    monkeypatch.setattr('decisionbound.code_patches.subprocess.run',
+                        lambda argv, *a, **kw: calls.append(list(argv)) or real(argv, *a, **kw))
+    PatchValidator().apply(PATCH, Path(ws.path), git_dir=worktree_git_dir(ws))
+    patch_calls = [argv for argv in calls if 'apply' in argv or 'ls-files' in argv]
+    assert len(patch_calls) == 3
+    assert not any('core.eol=crlf' in argv or 'core.autocrlf=true' in argv for argv in patch_calls)

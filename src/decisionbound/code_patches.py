@@ -174,8 +174,9 @@ class PatchValidator:
 
     def check_git_modes(self, workspace: Path, paths: tuple[str, ...], git_dir: Path | None = None) -> None:
         """Block Git symlinks/submodules and non-regular tracked file modes."""
+        prefix = self._git_prefix(workspace, git_dir)  # once, because it runs a `git config` lookup
         for path in paths:
-            proc = subprocess.run([*self._git_prefix(workspace, git_dir), 'ls-files', '--stage', '--', path],
+            proc = subprocess.run([*prefix, 'ls-files', '--stage', '--', path],
                                   text=True, capture_output=True, check=True, timeout=15, env=_git_env())
             for line in proc.stdout.splitlines():
                 mode = line.split(' ', 1)[0]

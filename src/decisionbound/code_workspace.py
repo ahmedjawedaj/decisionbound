@@ -118,7 +118,8 @@ def git_entry_is_original(workspace: Workspace, git_dir: Path) -> bool:
     try:
         if entry.is_symlink() or not entry.is_file():
             return False
-        text = entry.read_text(encoding='utf-8').strip()
+        with entry.open('rb') as handle:
+            text = handle.read(4096).decode('utf-8').strip()  # bounded: the container controls this file
         if not text.startswith('gitdir:'):
             return False
         pointer = text[len('gitdir:'):].strip()
