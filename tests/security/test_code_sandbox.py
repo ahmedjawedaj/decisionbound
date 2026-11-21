@@ -123,53 +123,50 @@ def test_scripted_runner_is_honestly_mock_labeled(tmp_path):
 # (issue 20). This check reads the argument list instead. It is an allowlist of exactly the options the
 # runner emits, so any other option before the image name is a violation, whatever it does. It cannot see
 # a mount that the daemon adds on its own, so it complements that probe and does not replace it.
-def _exact(text: str):
-    return lambda value: value == text
-
-
-def _pattern(regex: str):
-    return lambda value: re.fullmatch(regex, value) is not None
-
-
-# option -> (takes a value, accepts the value, how many times it must appear)
-ALLOWED_OPTIONS = {
-    '--name': (True, _pattern(r'dbound-[a-f0-9]{32}-[a-f0-9]{8}'), 1),
-    '--rm': (False, None, 1),
-    '--network': (True, _exact('none'), 1),
-    '--pull': (True, _exact('never'), 1),
-    '--read-only': (False, None, 1),
-    '--cap-drop': (True, _exact('ALL'), 1),
-    '--security-opt': (True, _exact('no-new-privileges'), 1),
-    '--pids-limit': (True, _pattern(r'\d+'), 1),
-    '--memory': (True, _pattern(r'\d+m'), 1),
-    '--cpus': (True, _pattern(r'\d+(\.\d+)?'), 1),
-    '--user': (True, _pattern(r'(?!0:)\d+:\d+'), 1),
-    '--tmpfs': (True, _pattern(r'/tmp:rw,nosuid,nodev,size=\d+m'), 1),
-    '-e': (True, _pattern(r'PYTHONDONTWRITEBYTECODE=1|PYTEST_DISABLE_PLUGIN_AUTOLOAD=1'), 2),
-    '--mount': (True, None, 1),
-    '-w': (True, _exact('/workspace'), 1),
+# option -> (takes a value, how many times it appears). '-e' appears once for each environment value.
+OPTION_SHAPE = {
+    '--name': (True, 1), '--rm': (False, 1), '--network': (True, 1), '--pull': (True, 1),
+    '--read-only': (False, 1), '--cap-drop': (True, 1), '--security-opt': (True, 1),
+    '--pids-limit': (True, 1), '--memory': (True, 1), '--cpus': (True, 1), '--user': (True, 1),
+    '--tmpfs': (True, 1), '-e': (True, 2), '--mount': (True, 1), '-w': (True, 1),
 }
+UID, GID = 1234, 5678
 
 
-def host_access_violations(argv: list[str], image: str, workspace_root: Path) -> list[str]:
+def expected_values(runner: DockerTestRunner, workspace_root: Path) -> dict:
+    """The value of every option, taken from the runner's own settings where it has them.
+
+    Only the container name varies from run to run (it carries a hash of the command), so it is the one
+    value matched by pattern. Everything else is compared exactly, so a limit of 0 (no limit) or a gid of 0
+    does not pass."""
+    return {
+        '--name': re.compile(r'dbound-[a-f0-9]{32}-[a-f0-9]{8}'),
+        '--network': 'none', '--pull': 'never', '--cap-drop': 'ALL', '--security-opt': 'no-new-privileges',
+        '--pids-limit': str(runner.pids), '--memory': f'{runner.memory_mb}m', '--cpus': str(runner.cpus),
+        '--user': f'{UID}:{GID}', '--tmpfs': '/tmp:rw,nosuid,nodev,size=64m',
+        '--mount': f'type=bind,src={workspace_root},dst=/workspace', '-w': '/workspace',
+    }
+
+
+ENVIRONMENT = ('PYTHONDONTWRITEBYTECODE=1', 'PYTEST_DISABLE_PLUGIN_AUTOLOAD=1')
+
+
+def host_access_violations(argv: list[str], runner: DockerTestRunner, workspace_root: Path) -> list[str]:
     """Return every token before the image that the runner does not emit, or that is missing or repeated."""
-    head = argv[:argv.index(image)]
+    head = argv[:argv.index(runner.image)]
     problems: list[str] = []
-    if len(head) < 2 or head[1] != 'run':
-        problems.append(f'the second token is {head[1:2]}, not run')
-        return problems
-    wanted_mount = f'type=bind,src={workspace_root},dst=/workspace'
+    if head[:1] != [runner.binary] or head[1:2] != ['run']:
+        return [f'the arguments start with {head[:2]}, not [{runner.binary!r}, \'run\']']
+    wanted = expected_values(runner, workspace_root)
     seen: dict[str, list[str]] = {}
     i = 2
     while i < len(head):
         token = head[i]
-        spec = ALLOWED_OPTIONS.get(token)
-        if spec is None:
+        if token not in OPTION_SHAPE:
             problems.append(f'{token}: not an option the runner emits')
             i += 1
             continue
-        takes_value, accepts, _ = spec
-        if not takes_value:
+        if not OPTION_SHAPE[token][0]:
             seen.setdefault(token, []).append('')
             i += 1
             continue
@@ -177,37 +174,42 @@ def host_access_violations(argv: list[str], image: str, workspace_root: Path) ->
             problems.append(f'{token}: no value')
             break
         value = head[i + 1]
-        if token == '--mount':
-            ok = value == wanted_mount
+        if token == '-e':
+            ok = value in ENVIRONMENT
+        elif token == '--name':
+            ok = wanted[token].fullmatch(value) is not None
         else:
-            ok = accepts(value)
+            ok = value == wanted[token]
         if not ok:
             problems.append(f'{token} {value}: value is not the one the runner emits')
         seen.setdefault(token, []).append(value)
         i += 2
-    for option, (_, _, times) in ALLOWED_OPTIONS.items():
+    for option, (_, times) in OPTION_SHAPE.items():
         count = len(seen.get(option, []))
         if count != times:
             problems.append(f'{option}: appears {count} times, expected {times}')
-    if sorted(seen.get('-e', [])) != sorted(set(seen.get('-e', []))):
+    if len(set(seen.get('-e', []))) != len(seen.get('-e', [])):
         problems.append('-e: the same environment value is set twice')
     return problems
 
 
-def real_argv(tmp_path, monkeypatch, command=('python', '-V')) -> tuple[list[str], str, Path]:
+def real_argv(tmp_path, monkeypatch, command=('python', '-V')) -> tuple[list[str], DockerTestRunner, Path]:
     monkeypatch.delenv('DOCKER_HOST', raising=False)
+    monkeypatch.setattr(os, 'getuid', lambda: UID, raising=False)
+    monkeypatch.setattr(os, 'getgid', lambda: GID, raising=False)
     ws = workspace(tmp_path)
     image = 'python@sha256:' + 'a' * 64
     seen = []
     monkeypatch.setattr('decisionbound.code_sandbox.subprocess.run',
                         lambda argv, **kw: seen.append(argv) or subprocess.CompletedProcess(argv, 0, b'', b''))
-    DockerTestRunner(image).run(ws, command, 4)
-    return seen[0], image, Path(ws.path).resolve()
+    runner = DockerTestRunner(image)
+    runner.run(ws, command, 4)
+    return seen[0], runner, Path(ws.path).resolve()
 
 
 def test_the_real_argument_list_gives_the_container_only_the_workspace_and_tmp(tmp_path, monkeypatch):
-    argv, image, root = real_argv(tmp_path, monkeypatch)
-    assert host_access_violations(argv, image, root) == []
+    argv, runner, root = real_argv(tmp_path, monkeypatch)
+    assert host_access_violations(argv, runner, root) == []
 
 
 # Each control adds the given tokens just before the image name. The check must report a problem and
@@ -265,67 +267,83 @@ EXTRA_OPTIONS = [
 
 @pytest.mark.parametrize('extra,culprit', EXTRA_OPTIONS, ids=lambda e: ' '.join(e) if isinstance(e, list) else None)
 def test_control_an_extra_option_is_flagged(tmp_path, monkeypatch, extra, culprit):
-    argv, image, root = real_argv(tmp_path, monkeypatch)
-    at = argv.index(image)
-    found = host_access_violations(argv[:at] + extra + argv[at:], image, root)
+    argv, runner, root = real_argv(tmp_path, monkeypatch)
+    at = argv.index(runner.image)
+    found = host_access_violations(argv[:at] + extra + argv[at:], runner, root)
     assert any(culprit in problem for problem in found), found
 
 
 @pytest.mark.parametrize('prefix', [['-H', 'tcp://evil:2375'], ['--host', 'tcp://evil:2375'],
                                     ['--context', 'remote'], ['-c', 'remote']])
 def test_control_a_daemon_selecting_option_before_run_is_flagged(tmp_path, monkeypatch, prefix):
-    argv, image, root = real_argv(tmp_path, monkeypatch)
-    found = host_access_violations([argv[0], *prefix, *argv[1:]], image, root)
+    argv, runner, root = real_argv(tmp_path, monkeypatch)
+    found = host_access_violations([argv[0], *prefix, *argv[1:]], runner, root)
     assert any(prefix[0] in problem for problem in found), found
 
 
-@pytest.mark.parametrize('option', sorted(ALLOWED_OPTIONS))
+@pytest.mark.parametrize('option', sorted(OPTION_SHAPE))
 def test_control_removing_any_required_option_is_flagged(tmp_path, monkeypatch, option):
-    argv, image, root = real_argv(tmp_path, monkeypatch)
-    takes_value = ALLOWED_OPTIONS[option][0]
+    argv, runner, root = real_argv(tmp_path, monkeypatch)
+    takes_value = OPTION_SHAPE[option][0]
     kept, skip = [], 0
-    for token in argv[:argv.index(image)]:
+    for token in argv[:argv.index(runner.image)]:
         if skip:
             skip -= 1
         elif token == option:
             skip = 1 if takes_value else 0
         else:
             kept.append(token)
-    found = host_access_violations(kept + argv[argv.index(image):], image, root)
+    found = host_access_violations(kept + argv[argv.index(runner.image):], runner, root)
     assert any(option in problem for problem in found), found
 
 
 def test_control_replacing_the_tmp_tmpfs_with_another_path_is_flagged(tmp_path, monkeypatch):
-    argv, image, root = real_argv(tmp_path, monkeypatch)
+    argv, runner, root = real_argv(tmp_path, monkeypatch)
     at = argv.index('--tmpfs')
     argv[at + 1] = '/dev/shm:rw,nosuid,nodev,size=64m'
-    found = host_access_violations(argv, image, root)
+    found = host_access_violations(argv, runner, root)
     assert any('/dev/shm' in problem for problem in found), found
 
 
 def test_control_a_workspace_mount_of_another_directory_is_flagged(tmp_path, monkeypatch):
-    argv, image, root = real_argv(tmp_path, monkeypatch)
-    found = host_access_violations(argv, image, root.parent)
+    argv, runner, root = real_argv(tmp_path, monkeypatch)
+    found = host_access_violations(argv, runner, root.parent)
     assert any('--mount' in problem for problem in found), found
 
 
 def test_control_a_value_that_runs_into_the_image_name_is_flagged(tmp_path, monkeypatch):
     """A dangling option must not swallow the image name and hide the problem."""
-    argv, image, root = real_argv(tmp_path, monkeypatch)
-    at = argv.index(image)
-    found = host_access_violations(argv[:at] + ['--ipc'] + argv[at:], image, root)
+    argv, runner, root = real_argv(tmp_path, monkeypatch)
+    at = argv.index(runner.image)
+    found = host_access_violations(argv[:at] + ['--ipc'] + argv[at:], runner, root)
     assert any('--ipc' in problem for problem in found), found
 
 
-def test_control_a_root_user_option_is_flagged(tmp_path, monkeypatch):
-    argv, image, root = real_argv(tmp_path, monkeypatch)
-    argv[argv.index('--user') + 1] = '0:0'
-    assert any('--user' in problem for problem in host_access_violations(argv, image, root))
+@pytest.mark.parametrize('option,bad', [
+    ('--user', '0:0'), ('--user', '00:0'), ('--user', '000:5678'), ('--user', '1234:0'), ('--user', '0001:0'),
+    ('--user', '\u0661\u0662\u0663\u0664:5678'),
+    ('--pids-limit', '0'), ('--pids-limit', '-1'), ('--pids-limit', '99999'),
+    ('--memory', '0m'), ('--memory', '99999m'), ('--memory', '-1'),
+    ('--cpus', '0'), ('--cpus', '99'),
+    ('--tmpfs', '/tmp:rw,nosuid,nodev,size=0m'), ('--tmpfs', '/tmp:rw,nosuid,nodev,exec,size=64m'),
+    ('--name', 'evil'), ('--name', 'dbound-1'),
+])
+def test_control_a_wrong_value_for_an_option_the_runner_emits_is_flagged(tmp_path, monkeypatch, option, bad):
+    """Limits of 0 mean no limit and a group of 0 is root, so values are compared exactly, not by pattern."""
+    argv, runner, root = real_argv(tmp_path, monkeypatch)
+    argv[argv.index(option) + 1] = bad
+    found = host_access_violations(argv, runner, root)
+    assert any(option in problem and bad in problem for problem in found), found
+
+
+def test_control_a_different_binary_or_a_token_before_run_is_flagged(tmp_path, monkeypatch):
+    argv, runner, root = real_argv(tmp_path, monkeypatch)
+    assert host_access_violations(['evil', *argv[1:]], runner, root) != []
 
 
 def test_options_of_the_test_command_after_the_image_are_not_mistaken_for_docker_options(tmp_path, monkeypatch):
     """pytest -v is a test option. Only what comes before the image name can change the container."""
     command = ('python', '-m', 'pytest', '-v', '--ipc=host', '--privileged')
-    argv, image, root = real_argv(tmp_path, monkeypatch, command)
+    argv, runner, root = real_argv(tmp_path, monkeypatch, command)
     assert argv[-len(command):] == list(command)
-    assert host_access_violations(argv, image, root) == []
+    assert host_access_violations(argv, runner, root) == []
