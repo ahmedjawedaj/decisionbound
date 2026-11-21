@@ -203,3 +203,13 @@ def test_the_cpu_ceiling_is_applied(tmp_path):
     assert _probe(tmp_path, CPU_QUOTA.replace("EXPECTED", "0.5"), runner=runner).exit_code == 0
     # Control: the same probe expecting an unlimited container fails inside the sandbox.
     assert _probe(tmp_path, CPU_QUOTA.replace("EXPECTED", "None"), runner=runner).exit_code == 1
+
+
+def test_the_tests_output_still_reaches_the_receipt(tmp_path):
+    """With --log-driver none the output must still stream. A receipt of empty output would hide a break."""
+    import hashlib
+    receipt = _probe(tmp_path, "import sys; sys.stdout.write('x\\n'); sys.stderr.write('e\\n')")
+    assert receipt.exit_code == 0
+    assert receipt.stdout_sha256 == hashlib.sha256(b"x\n").hexdigest()
+    # The Docker CLI may add its own warning lines to stderr, so only require that the output arrived.
+    assert receipt.stderr_sha256 != hashlib.sha256(b"").hexdigest()

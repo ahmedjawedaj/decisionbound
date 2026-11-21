@@ -107,9 +107,13 @@ class DockerTestRunner(IsolatedTestRunner):
         if not re.fullmatch(r'code_[a-f0-9]{32}', workspace.run_id):
             raise ValueError('Invalid workspace run identifier')
         name = 'dbound-' + workspace.run_id[5:] + '-' + _hash('\0'.join(command).encode())[:8]
+        # --memory-swap equal to --memory leaves no swap. --log-driver none stops the daemon from also
+        # writing everything the test prints to its own log on the host disk.
         argv = [self.binary, 'run', '--name', name, '--rm', '--network', 'none', '--pull', 'never',
                 '--read-only', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
+                '--log-driver', 'none',
                 '--pids-limit', str(self.pids), '--memory', f'{self.memory_mb}m',
+                '--memory-swap', f'{self.memory_mb}m',
                 '--cpus', str(self.cpus), '--user', f'{uid}:{gid}',
                 '--tmpfs', '/tmp:rw,nosuid,nodev,size=64m',
                 '-e', 'PYTHONDONTWRITEBYTECODE=1', '-e', 'PYTEST_DISABLE_PLUGIN_AUTOLOAD=1',
@@ -136,6 +140,19 @@ class DockerTestRunner(IsolatedTestRunner):
             duration = int((time.monotonic() - started) * 1000)
             return TestOutcome('docker', command, None, True, duration, _hash(exc.stdout or b''),
                                _hash(exc.stderr or b''), bool((exc.stdout or b'') or (exc.stderr or b'')))
+        except BaseException as exc:
+            # Python stops waiting for the CLI here (interrupt, memory error, OS error). Killing the CLI
+            # does not stop the container, so remove it by name before the error goes on. A failure of
+            # this cleanup must not hide the original error, so it is only noted on it. This does not
+            # help when the Python process itself is killed (SIGTERM, SIGKILL, power loss).
+            try:
+                cleanup = subprocess.run([self.binary, 'rm', '-f', name],
+                                         capture_output=True, timeout=15, env=env)
+                if cleanup.returncode != 0 and b'No such container' not in (cleanup.stderr or b''):
+                    exc.add_note(f'Sandbox container {name} may still be running: cleanup failed')
+            except (OSError, subprocess.TimeoutExpired):
+                exc.add_note(f'Sandbox container {name} may still be running: cleanup unconfirmed')
+            raise
         duration = int((time.monotonic() - started) * 1000)
         return TestOutcome('docker', command, result.returncode, False, duration,
                            _hash(result.stdout), _hash(result.stderr),
