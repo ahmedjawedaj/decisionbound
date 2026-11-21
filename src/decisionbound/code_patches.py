@@ -12,6 +12,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from .code_models import PatchInspection
+from .code_workspace import _git_env, _line_ending_options
 
 _DIFF = re.compile(r'^diff --git a/([A-Za-z0-9_.+/-]+) b/([A-Za-z0-9_.+/-]+)$')
 _HUNK = re.compile(r'^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(?: .*)?$')
@@ -167,14 +168,15 @@ class PatchValidator:
         """Git options for a worktree. With ``git_dir`` Git ignores ``<worktree>/.git`` and its config."""
         prefix = ['git', '-C', str(workspace)]
         if git_dir is not None:
-            prefix += ['--git-dir', str(git_dir), '--work-tree', str(workspace), '-c', 'core.fsmonitor=false']
-        return prefix + ['-c', 'core.hooksPath=/dev/null']
+            prefix += ['--git-dir', str(git_dir), '--work-tree', str(workspace), '--literal-pathspecs',
+                       '-c', 'core.fsmonitor=false']
+        return prefix + ['-c', 'core.hooksPath=/dev/null', *_line_ending_options(workspace, git_dir)]
 
     def check_git_modes(self, workspace: Path, paths: tuple[str, ...], git_dir: Path | None = None) -> None:
         """Block Git symlinks/submodules and non-regular tracked file modes."""
         for path in paths:
             proc = subprocess.run([*self._git_prefix(workspace, git_dir), 'ls-files', '--stage', '--', path],
-                                  text=True, capture_output=True, check=True, timeout=15)
+                                  text=True, capture_output=True, check=True, timeout=15, env=_git_env())
             for line in proc.stdout.splitlines():
                 mode = line.split(' ', 1)[0]
                 if mode != '100644':
@@ -192,12 +194,12 @@ class PatchValidator:
         command = [*prefix, 'apply', '--whitespace=error', '--']
         data = patch.encode('utf-8')
         check = subprocess.run([*prefix, 'apply', '--check', '--whitespace=error', '--'], input=data,
-                               capture_output=True, timeout=20)
+                               capture_output=True, timeout=20, env=_git_env())
         if check.returncode != 0:
             raise UnsafePatch('Git rejected patch preflight')
         # No partial application is expected after --check; failure still
         # quarantines the whole worktree for independent reconciliation.
-        result = subprocess.run(command, input=data, capture_output=True, timeout=20)
+        result = subprocess.run(command, input=data, capture_output=True, timeout=20, env=_git_env())
         if result.returncode != 0:
             raise UnsafePatch('Git failed to apply patch')
         return inspection

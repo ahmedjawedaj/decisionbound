@@ -8,6 +8,7 @@ and check that no host-side Git call used by the coding workflow runs it.
 POSIX only: the planted program is a shell script.
 """
 from __future__ import annotations
+import os
 import stat
 import subprocess
 import sys
@@ -16,7 +17,9 @@ import pytest
 from decisionbound.code_execution import PatchFileProposer, _changed_diff, run_coding_task
 from decisionbound.code_patches import PatchValidator
 from decisionbound.code_sandbox import ScriptedTestRunner
-from decisionbound.code_workspace import GitWorktreeManager, WorkspaceError, _git, _line_ending_options, worktree_git_dir
+from decisionbound.code_models import Workspace
+from decisionbound.code_workspace import (GitWorktreeManager, WorkspaceError, _git, _line_ending_options,
+                                          git_entry_is_original, worktree_git_dir)
 from tests.integration.test_code_workflow import ADD, PATCH, project  # noqa: F401
 
 pytestmark = pytest.mark.skipif(sys.platform == 'win32', reason='the planted program is a POSIX shell script')
@@ -123,7 +126,8 @@ def test_end_to_end_a_test_command_that_replaces_git_cannot_run_host_code(projec
                               test_commands=(('python', '-m', 'pytest', '-q'),), approved_writes=True)
     assert not marker.exists()
     events = {e['event']: e['payload'] for e in db.events(outcome.run_id)}
-    assert events['code_post_test_integrity']['unchanged'] is True
+    assert events['code_post_test_integrity']['unchanged'] is False
+    assert outcome.acceptance_verified is False
     assert outcome.task_completed is False
 
 
@@ -166,3 +170,175 @@ def test_git_is_not_given_line_ending_settings_from_a_planted_config(project, tm
     _git(Path(ws.path), 'status', '--porcelain', git_dir=worktree_git_dir(ws))
     assert calls and not any('core.eol=crlf' in argv for argv in calls)
     assert not (tmp_path / 'ran').exists()
+
+
+def run_git(cwd: Path, *args: str) -> subprocess.CompletedProcess:
+    env = dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM='1')
+    return subprocess.run(['git', *args], cwd=cwd, env=env, capture_output=True, text=True, check=True)
+
+
+def program(path: Path, marker: Path, body: str = 'cat') -> Path:
+    path.write_text(f'#!/bin/sh\ntouch "{marker}"\n{body}\n', encoding='utf-8')
+    path.chmod(path.stat().st_mode | stat.S_IXUSR)
+    return path
+
+
+def plant_clean_filter(workspace, marker: Path) -> None:
+    """Hostile `.git` config that defines a clean filter, plus a `.gitattributes` that selects it."""
+    plant(workspace, marker.with_name('unused'))
+    tree = Path(workspace.path)
+    filt = program(tree / '.git' / 'filter.sh', marker)
+    with (tree / '.git' / 'config').open('a', encoding='utf-8') as handle:
+        handle.write(f'[filter "x"]\n\tclean = {filt}\n')
+    (tree / '.gitattributes').write_text('* filter=x\n', encoding='utf-8')
+
+
+def test_control_apply_in_a_tampered_worktree_runs_a_planted_clean_filter(project, tmp_path):
+    ws, marker = make_workspace(project), tmp_path / 'ran'
+    plant_clean_filter(ws, marker)
+    PatchValidator().apply(PATCH, Path(ws.path))
+    assert marker.exists()
+
+
+def test_patch_apply_does_not_run_a_planted_clean_filter(project, tmp_path):
+    """git apply never reads core.fsmonitor, so only a filter shows whether the apply calls are protected."""
+    ws, marker = make_workspace(project), tmp_path / 'ran'
+    plant_clean_filter(ws, marker)
+    PatchValidator().apply(PATCH, Path(ws.path), git_dir=worktree_git_dir(ws))
+    assert not marker.exists()
+
+
+def test_patch_git_calls_ignore_a_filter_from_the_users_global_config(project, tmp_path, monkeypatch):
+    """git-lfs style global filters could otherwise be chosen by a .gitattributes the container wrote."""
+    ws, marker = make_workspace(project), tmp_path / 'ran'
+    filt = program(tmp_path / 'global_filter.sh', marker)
+    global_config = tmp_path / 'gitconfig'
+    global_config.write_text(f'[filter "x"]\n\tclean = {filt}\n', encoding='utf-8')
+    monkeypatch.setenv('GIT_CONFIG_GLOBAL', str(global_config))
+    (Path(ws.path) / '.gitattributes').write_text('* filter=x\n', encoding='utf-8')
+    PatchValidator().apply(PATCH, Path(ws.path), git_dir=worktree_git_dir(ws))
+    assert not marker.exists()
+
+
+@pytest.fixture
+def gitlink_project(project):
+    """A source repository whose base commit contains a gitlink (submodule entry)."""
+    root, state, db = project
+    head = run_git(root, 'rev-parse', 'HEAD').stdout.strip()
+    run_git(root, 'update-index', '--add', '--cacheinfo', f'160000,{head},sub')
+    run_git(root, 'commit', '-qm', 'add a gitlink')
+    (root / 'sub').mkdir()  # an uninitialised submodule is an empty directory
+    return root, state, db
+
+
+def plant_nested_repository(workspace, marker: Path) -> None:
+    """What a test command could do under a gitlink path, which the worktree leaves empty."""
+    sub = Path(workspace.path) / 'sub'
+    sub.mkdir(exist_ok=True)
+    run_git(sub, 'init', '-q')
+    filt = program(sub / 'filter.sh', marker)
+    run_git(sub, 'config', 'filter.x.clean', str(filt))
+    (sub / '.gitattributes').write_text('* filter=x\n', encoding='utf-8')
+    (sub / 'f.txt').write_text('hello\n', encoding='utf-8')
+    run_git(sub, 'add', 'f.txt', '.gitattributes')
+    os.utime(sub / 'f.txt', (1, 1))
+    marker.unlink(missing_ok=True)
+
+
+def test_control_git_status_runs_the_clean_filter_of_a_nested_repository_unless_submodules_are_ignored(
+        gitlink_project, tmp_path):
+    ws, marker = make_workspace(gitlink_project), tmp_path / 'ran'
+    plant_nested_repository(ws, marker)
+    _git(Path(ws.path), 'status', '--porcelain', '--untracked-files=all', git_dir=worktree_git_dir(ws))
+    assert marker.exists()
+
+
+def test_the_post_test_status_does_not_run_a_nested_repositorys_clean_filter(gitlink_project, tmp_path):
+    ws, marker = make_workspace(gitlink_project), tmp_path / 'ran'
+    inspection = PatchValidator().apply(PATCH, Path(ws.path), git_dir=worktree_git_dir(ws))
+    plant_nested_repository(ws, marker)
+    _, diff = _changed_diff(ws, inspection)
+    assert not marker.exists()
+    assert 'VALUE = 2' in diff
+
+
+def test_a_trusted_configs_own_fsmonitor_is_switched_off_for_host_git(project, tmp_path):
+    """The source repository's config is trusted, but its builtin fsmonitor should not run for this check."""
+    ws, marker = make_workspace(project), tmp_path / 'ran'
+    monitor = program(tmp_path / 'monitor.sh', marker, 'printf "\\0"')
+    run_git(Path(ws.repository_root), 'config', 'core.fsmonitor', str(monitor))
+    inspection = PatchValidator().apply(PATCH, Path(ws.path), git_dir=worktree_git_dir(ws))
+    marker.unlink(missing_ok=True)
+    _changed_diff(ws, inspection)
+    assert not marker.exists()
+    raw = subprocess.run(['git', '--git-dir', str(worktree_git_dir(ws)), '--work-tree', ws.path, 'status'],
+                         cwd=ws.path, capture_output=True, env=dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull))
+    assert raw.returncode == 0 and marker.exists()  # control: without the flag the same config runs it
+
+
+def test_pathspecs_are_taken_literally(project):
+    ws = make_workspace(project)
+    git_dir = worktree_git_dir(ws)
+    assert _git(Path(ws.path), 'ls-files', '--', '*.py', git_dir=git_dir) == ''
+    assert _git(Path(ws.path), 'ls-files', '--', '*.py') == 'app.py'
+
+
+def test_a_relative_gitdir_pointer_is_resolved_from_its_own_directory(project, tmp_path, monkeypatch):
+    ws = make_workspace(project)
+    entry = worktree_git_dir(ws)
+    (entry / 'gitdir').write_text(os.path.relpath(Path(ws.path).resolve() / '.git', entry) + '\n',
+                                  encoding='utf-8')
+    monkeypatch.chdir(tmp_path)
+    assert worktree_git_dir(ws) == entry
+
+
+def test_a_missing_worktree_is_a_workspace_error_not_a_bare_os_error(project, tmp_path):
+    ws = make_workspace(project)
+    gone = Workspace(str(tmp_path / 'nowhere'), ws.repository_root, ws.base_commit, ws.run_id)
+    with pytest.raises(WorkspaceError):
+        worktree_git_dir(gone)
+
+
+def test_the_git_entry_check_accepts_only_the_original_pointer_file(project, tmp_path):
+    ws = make_workspace(project)
+    git_dir = worktree_git_dir(ws)
+    entry = Path(ws.path) / '.git'
+    assert git_entry_is_original(ws, git_dir)
+    original = entry.read_text(encoding='utf-8')
+    entry.write_text(f'gitdir: {tmp_path}/elsewhere\n', encoding='utf-8')
+    assert not git_entry_is_original(ws, git_dir)
+    entry.write_text('not a pointer\n', encoding='utf-8')
+    assert not git_entry_is_original(ws, git_dir)
+    entry.unlink()
+    entry.symlink_to(git_dir)
+    assert not git_entry_is_original(ws, git_dir)
+    entry.unlink()
+    assert not git_entry_is_original(ws, git_dir)
+    entry.mkdir()
+    assert not git_entry_is_original(ws, git_dir)
+    entry.rmdir()
+    entry.write_text(original, encoding='utf-8')
+    assert git_entry_is_original(ws, git_dir)
+
+
+def test_a_core_worktree_in_the_source_config_does_not_move_the_work_tree(project, tmp_path):
+    """--work-tree is passed explicitly, so a core.worktree setting cannot point host Git somewhere else."""
+    ws = make_workspace(project)
+    other = tmp_path / 'other'
+    other.mkdir()
+    run_git(Path(ws.repository_root), 'config', 'core.worktree', str(other))
+    inspection = PatchValidator().apply(PATCH, Path(ws.path), git_dir=worktree_git_dir(ws))
+    _, diff = _changed_diff(ws, inspection)
+    assert 'VALUE = 2' in diff
+
+
+def test_patch_git_calls_forward_the_users_line_ending_settings(project, monkeypatch):
+    """The scrubbed environment hides the system autocrlf of Git for Windows, so it is passed explicitly."""
+    ws = make_workspace(project)
+    run_git(Path(ws.repository_root), 'config', 'core.autocrlf', 'true')
+    calls, real = [], subprocess.run
+    monkeypatch.setattr('decisionbound.code_patches.subprocess.run',
+                        lambda argv, *a, **kw: calls.append(list(argv)) or real(argv, *a, **kw))
+    PatchValidator().apply(PATCH, Path(ws.path), git_dir=worktree_git_dir(ws))
+    patch_calls = [argv for argv in calls if 'apply' in argv or 'ls-files' in argv]
+    assert len(patch_calls) == 3 and all('core.autocrlf=true' in argv for argv in patch_calls)

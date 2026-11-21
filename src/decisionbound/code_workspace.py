@@ -76,7 +76,8 @@ def _trusted_location(worktree: Path, git_dir: Path | None) -> list[str]:
     """
     if git_dir is None:
         return []
-    return ['--git-dir', str(git_dir), '--work-tree', str(worktree), '-c', 'core.fsmonitor=false']
+    return ['--git-dir', str(git_dir), '--work-tree', str(worktree), '--literal-pathspecs',
+            '-c', 'core.fsmonitor=false']
 
 
 def worktree_git_dir(workspace: Workspace) -> Path:
@@ -85,22 +86,45 @@ def worktree_git_dir(workspace: Workspace) -> Path:
     The answer comes only from the source repository's own ``worktrees/*/gitdir`` files, which the
     container cannot reach. Exactly one entry must point back at this worktree.
     """
-    worktree = Path(workspace.path)
-    repository = Path(workspace.repository_root)
-    common = Path(_git(repository, 'rev-parse', '--git-common-dir'))
-    common = (common if common.is_absolute() else repository / common).resolve(strict=True)
-    wanted = os.path.normcase(str((worktree.resolve(strict=True) / '.git')))
-    found = []
-    for entry in sorted((common / 'worktrees').glob('*')):
-        try:
-            pointer = (entry / 'gitdir').read_text(encoding='utf-8').strip()
-        except OSError:
-            continue
-        if os.path.normcase(str(Path(pointer).resolve())) == wanted:
-            found.append(entry.resolve(strict=True))
+    try:
+        worktree = Path(workspace.path)
+        repository = Path(workspace.repository_root)
+        common = Path(_git(repository, 'rev-parse', '--git-common-dir'))
+        common = (common if common.is_absolute() else repository / common).resolve(strict=True)
+        wanted = os.path.normcase(str((worktree.resolve(strict=True) / '.git')))
+        found = []
+        for entry in sorted((common / 'worktrees').glob('*')):
+            try:
+                pointer = (entry / 'gitdir').read_text(encoding='utf-8').strip()
+            except OSError:
+                continue
+            # A pointer may be relative to its own directory (worktree.useRelativePaths).
+            if os.path.normcase(str((entry / pointer).resolve())) == wanted:
+                found.append(entry.resolve(strict=True))
+    except OSError as exc:
+        raise WorkspaceError('Worktree or source repository is not available') from exc
     if len(found) != 1:
         raise WorkspaceError('Git does not list exactly one metadata directory for this worktree')
     return found[0]
+
+
+def git_entry_is_original(workspace: Workspace, git_dir: Path) -> bool:
+    """True only while ``<worktree>/.git`` is still the regular pointer file Git wrote.
+
+    Test code can replace it with a directory or a symlink. Nothing runs from it once the host passes
+    ``--git-dir``, but a replaced entry means the worktree was tampered with and the run is not trusted.
+    """
+    entry = Path(workspace.path) / '.git'
+    try:
+        if entry.is_symlink() or not entry.is_file():
+            return False
+        text = entry.read_text(encoding='utf-8').strip()
+        if not text.startswith('gitdir:'):
+            return False
+        pointer = text[len('gitdir:'):].strip()
+        return (Path(workspace.path) / pointer).resolve() == git_dir.resolve()
+    except (OSError, UnicodeError):
+        return False
 
 
 def _git(root: Path, *args: str, timeout: int = 30, git_dir: Path | None = None) -> str:

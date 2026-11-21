@@ -18,7 +18,7 @@ from .code_models import CodingOutcome, PatchInspection, PatchProposal, TestOutc
 from .code_acceptance import TaskContract
 from .code_ports import CodingVerifier, IsolatedTestRunner, PatchProposer
 from .code_patches import PatchPolicy, PatchValidator, UnsafePatch
-from .code_workspace import GitWorktreeManager, WorkspaceError, _git, worktree_git_dir
+from .code_workspace import GitWorktreeManager, WorkspaceError, _git, git_entry_is_original, worktree_git_dir
 from .code_sandbox import DockerTestRunner
 from .identity import load_project
 from .storage import SQLiteRepository
@@ -111,7 +111,8 @@ def _changed_diff(workspace: Workspace, inspection: PatchInspection) -> tuple[st
     root = Path(workspace.path)
     # The container could write to this worktree, so never let Git read the `.git` entry inside it.
     git_dir = worktree_git_dir(workspace)
-    status = _git(root, 'status', '--porcelain', '--untracked-files=all', '--ignored=matching', git_dir=git_dir)
+    status = _git(root, 'status', '--porcelain', '--untracked-files=all', '--ignored=matching',
+                  '--ignore-submodules=all', git_dir=git_dir)
     changed: set[str] = set()
     new: list[str] = []
     for line in status.splitlines():
@@ -258,6 +259,8 @@ def run_coding_task(*, project_path: Path, state_root: Path, repository: SQLiteR
             if receipt.exit_code != 0 or receipt.timed_out or receipt.output_truncated:
                 break
         try:
+            if not git_entry_is_original(workspace, worktree_git_dir(workspace)):
+                raise UnsafePatch('The worktree .git entry was replaced during the tests')
             after_digest, _ = _changed_diff(workspace, inspection)
             unchanged = (after_digest == digest)
         except (UnsafePatch, WorkspaceError):
