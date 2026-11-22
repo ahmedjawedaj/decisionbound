@@ -22,6 +22,42 @@ def test_protected_and_noncanonical_paths_are_rejected(project, path):
         PatchValidator().inspect(patch_for(path), root)
 
 
+@pytest.mark.parametrize('path', [
+    'agents.md', 'Agents.MD', 'claude.md', '.ENV', '.Env.production', 'x/.ENV',
+    '.GIT/config', '.Git/hooks/pre-commit', '.GitHub/Workflows/ci.yml', '.github/WORKFLOWS/ci.yml',
+    '.DecisionBound/project.yaml', '.GitAttributes', 'sub/.GITATTRIBUTES', '.GITMODULES',
+    'private.PEM', 'x/Private.Key', 'ID_RSA', 'x/Id_Ed25519.pub', 'x/KEY.P12',
+], ids=str)
+def test_protected_paths_are_matched_without_regard_to_case(project, path):
+    """On macOS and Windows these name the protected files."""
+    root, _, _ = project
+    with pytest.raises(UnsafePatch, match='Protected repository path'):
+        PatchValidator().inspect(patch_for(path), root)
+
+
+@pytest.mark.parametrize('path', [
+    'AGENTS.md.', '.git.', '.github./workflows/ci.yml', 'src./x.py', 'x/y.',
+], ids=str)
+def test_a_path_component_ending_in_a_dot_is_rejected(project, path):
+    """Windows drops the trailing dot, so these name protected or existing files under another spelling."""
+    root, _, _ = project
+    with pytest.raises(UnsafePatch, match='noncanonical'):
+        PatchValidator().inspect(patch_for(path), root)
+
+
+@pytest.mark.parametrize('path', ['Docs/Guide.md', 'README.MD', 'my-agents.md', 'src/Claude.md', 'a/b.c.py'],
+                         ids=str)
+def test_ordinary_paths_with_capitals_or_similar_names_are_still_allowed(project, path):
+    root, _, _ = project
+    PatchPolicy().check_path(root, path)
+
+
+def test_two_spellings_of_one_file_in_one_patch_are_a_duplicate(project):
+    root, _, _ = project
+    with pytest.raises(UnsafePatch, match='Duplicate'):
+        PatchValidator().inspect(PATCH + patch_for('App.py'), root)
+
+
 def test_symlink_target_and_parent_are_rejected(project, tmp_path):
     root, _, _ = project
     (root/'alias.py').symlink_to(root/'app.py')

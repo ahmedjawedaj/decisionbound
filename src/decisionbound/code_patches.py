@@ -23,6 +23,10 @@ _BLOCKED = (
     'id_rsa*', 'id_ed25519*', 'AGENTS.md', 'CLAUDE.md',
     '.gitattributes', '.gitmodules', '**/.gitattributes', '**/.gitmodules',
 )
+# Paths are compared in lower case with a case-sensitive match. The checkout may sit on a filesystem
+# that ignores case (macOS, Windows), where ``.GitHub/Workflows/ci.yml`` is the protected file, and
+# ``fnmatch.fnmatch`` would otherwise follow the host operating system instead of the policy.
+_BLOCKED_FOLDED = tuple(pattern.casefold() for pattern in _BLOCKED)
 
 
 class UnsafePatch(ValueError):
@@ -54,7 +58,11 @@ class PatchPolicy:
                 path.is_absolute() or any(p in ('', '.', '..') for p in path.parts) or
                 len(raw) > 240 or raw.startswith('-')):
             raise UnsafePatch('Unsafe or noncanonical patch path')
-        if any(fnmatch.fnmatch(raw, pat) for pat in _BLOCKED):
+        if any(part.endswith('.') for part in path.parts):
+            # Windows drops a trailing dot, so ``.git.`` and ``AGENTS.md.`` name protected files.
+            raise UnsafePatch('Unsafe or noncanonical patch path')
+        folded = raw.casefold()
+        if any(fnmatch.fnmatchcase(folded, pat) for pat in _BLOCKED_FOLDED):
             raise UnsafePatch('Protected repository path')
         if not any(fnmatch.fnmatch(raw, p) for p in self.allowed_globs):
             raise UnsafePatch('Path outside caller allowlist')
@@ -103,7 +111,7 @@ class PatchValidator:
                     raise UnsafePatch('Rename/copy is not supported')
                 path = match[1]
                 self.policy.check_path(workspace, path)
-                if path in paths:
+                if path.casefold() in (seen.casefold() for seen in paths):
                     raise UnsafePatch('Duplicate file in patch')
                 paths.append(path)
                 if len(paths) > self.policy.max_files:
