@@ -45,6 +45,16 @@ def test_a_path_component_ending_in_a_dot_is_rejected(project, path):
         PatchValidator().inspect(patch_for(path), root)
 
 
+@pytest.mark.parametrize('path', [
+    '.env ', 'AGENTS.md ', '.git ', 'src /x.py', 'AGENTS.md:x', '.git::$INDEX_ALLOCATION', 'a.py:stream', 'a.',
+], ids=str)
+def test_check_path_alone_rejects_trailing_spaces_and_colons(project, path):
+    """Acceptance contracts and source targets reach check_path without the diff header's character filter."""
+    root, _, _ = project
+    with pytest.raises(UnsafePatch, match='noncanonical'):
+        PatchPolicy().check_path(root, path)
+
+
 @pytest.mark.parametrize('path', ['Docs/Guide.md', 'README.MD', 'my-agents.md', 'src/Claude.md', 'a/b.c.py'],
                          ids=str)
 def test_ordinary_paths_with_capitals_or_similar_names_are_still_allowed(project, path):
@@ -56,6 +66,9 @@ def test_two_spellings_of_one_file_in_one_patch_are_a_duplicate(project):
     root, _, _ = project
     with pytest.raises(UnsafePatch, match='Duplicate'):
         PatchValidator().inspect(PATCH + patch_for('App.py'), root)
+    # Another file in between must not hide the repeat.
+    with pytest.raises(UnsafePatch, match='Duplicate'):
+        PatchValidator().inspect(PATCH + patch_for('other.py') + patch_for('APP.PY'), root)
 
 
 def test_symlink_target_and_parent_are_rejected(project, tmp_path):

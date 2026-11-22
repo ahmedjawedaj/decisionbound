@@ -58,8 +58,10 @@ class PatchPolicy:
                 path.is_absolute() or any(p in ('', '.', '..') for p in path.parts) or
                 len(raw) > 240 or raw.startswith('-')):
             raise UnsafePatch('Unsafe or noncanonical patch path')
-        if any(part.endswith('.') for part in path.parts):
-            # Windows drops a trailing dot, so ``.git.`` and ``AGENTS.md.`` name protected files.
+        if any(part.endswith(('.', ' ')) or ':' in part for part in path.parts):
+            # Windows drops a trailing dot or space, so ``.git.`` and ``AGENTS.md `` name protected
+            # files, and a colon starts an alternate data stream. A diff header cannot carry these,
+            # but acceptance contracts and source targets reach this check without that filter.
             raise UnsafePatch('Unsafe or noncanonical patch path')
         folded = raw.casefold()
         if any(fnmatch.fnmatchcase(folded, pat) for pat in _BLOCKED_FOLDED):
