@@ -22,6 +22,10 @@ _BLOCKED = (
     '**/id_rsa*', '**/id_ed25519*', '*.pem', '*.key', '*.p12',
     'id_rsa*', 'id_ed25519*', 'AGENTS.md', 'CLAUDE.md',
     '.gitattributes', '.gitmodules', '**/.gitattributes', '**/.gitmodules',
+    # Agent instruction files steer an agent from any directory, not only from the root.
+    '**/AGENTS.md', '**/CLAUDE.md',
+    # Shell environment files and anything named like an environment file.
+    '.envrc', '**/.envrc', '*.env', '**/*.env',
 )
 # Paths are compared in lower case with a case-sensitive match. The checkout may sit on a filesystem
 # that ignores case (macOS, Windows), where ``.GitHub/Workflows/ci.yml`` is the protected file, and

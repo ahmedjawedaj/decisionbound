@@ -208,6 +208,8 @@ class BoundedReadOnlyAgent(AgentWorker):
 
 
 _EXCLUDED = {".git", ".decisionbound", "node_modules", ".venv", "__pycache__"}
+# Compared in lower case: a checkout on a filesystem that ignores case (macOS, Windows) serves
+# ``Credentials.json`` for ``credentials.json``, and a Linux repository may hold either spelling.
 _SECRET_NAMES = {".env", ".env.local", ".env.production", "credentials.json", "id_rsa", "id_ed25519"}
 _SUPPORTED = {".py", ".md", ".txt", ".yaml", ".yml", ".json", ".ts", ".tsx", ".go", ".rs"}
 
@@ -225,7 +227,7 @@ def repository_readonly_tools(root: Path, max_file_bytes: int = 512_000) -> Tool
         """Deny hidden credential names and unsupported/binary file types."""
         candidate = Path(path)
         if (any(part in _EXCLUDED or part.startswith(".") for part in candidate.parts)
-                or candidate.name in _SECRET_NAMES
+                or candidate.name.casefold() in _SECRET_NAMES
                 or any((base / Path(*candidate.parts[:index])).is_symlink()
                        for index in range(1, len(candidate.parts) + 1))):
             raise PermissionError("Protected repository path")

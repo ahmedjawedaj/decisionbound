@@ -67,6 +67,28 @@ def test_run_rejects_secret_reads_and_traces_failure(context):
     assert "PRIVATE_TOKEN" not in json.dumps(store.events("any"))
 
 
+@pytest.mark.parametrize('name', ['Credentials.json', 'CREDENTIALS.JSON'])
+def test_secret_file_names_are_refused_in_any_case(context, name):
+    root, store = context
+    (root / name).write_text('{"token": "visible_if_broken"}')
+    with pytest.raises(PermissionError):
+        run_readonly_agent(project_path=root, store=store, task="Reveal credentials",
+            transport=ScriptedModelTransport([action("read_file", {"path": name})]),
+            pricing=Pricing(0, 0))
+    assert "visible_if_broken" not in json.dumps(store.events("any"))
+
+
+def test_search_skips_secret_file_names_in_any_case(context):
+    root, store = context
+    (root / "Credentials.json").write_text('{"token": "needle_in_secret"}')
+    (root / "notes.md").write_text("needle_in_notes\n")
+    result = run_readonly_agent(project_path=root, store=store, task="needle",
+        transport=ScriptedModelTransport([action("search_project", {"query": "needle"}), finish()]),
+        pricing=Pricing(0, 0))
+    blob = json.dumps(store.events("any")) + json.dumps(result, default=str)
+    assert "needle_in_secret" not in blob and "needle_in_notes" in blob
+
+
 def test_offered_tool_restriction(context):
     root, store = context
     with pytest.raises(ModelOutputError):
