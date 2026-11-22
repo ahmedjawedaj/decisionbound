@@ -97,7 +97,7 @@ Cleanup verifies the original repository and recorded worktree path match a mana
 
 ## Security limits and prohibited operations
 
-The host refuses symlinked targets/ancestors, absolute and traversal paths, hidden project control metadata, CI workflows, `.env`/credential-like files, Git submodules/symlinks/executables, binary patches, renames/copies/deletions, missing or duplicate hunk headers, mismatched changed paths and changes introduced during testing. It does **not** provide adversarial runtime isolation on the host; you must use the configured container runner for real untrusted tests. Full threat modeling, remote multi-tenant authorization, Docker escape hardening and OS-specific sandbox assurance remain separate work.
+The host refuses symlinked targets/ancestors, absolute and traversal paths, hidden project control metadata, CI workflows, `.env`, `.envrc` and other environment or credential-like files, agent instruction files (`AGENTS.md`, `CLAUDE.md`) in any directory, Git submodules/symlinks/executables, binary patches, renames/copies/deletions, missing or duplicate hunk headers, mismatched changed paths and changes introduced during testing. It does **not** provide adversarial runtime isolation on the host; you must use the configured container runner for real untrusted tests. Full threat modeling, remote multi-tenant authorization, Docker escape hardening and OS-specific sandbox assurance remain separate work.
 
 ## Extending the coding system
 

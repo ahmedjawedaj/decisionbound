@@ -126,7 +126,7 @@ Or call `GET /api/workflows/{workflow_id}/attestation` on the authenticated loca
 | Test fails or contract rejects patch | Bounded repair attempts, then failure/exhaustion |
 | `--require-red-test` with a simulated runner | Blocked before patch application; no mock-derived red proof |
 | Reused key after contract, patch, runner or test-first change | Conflict, no replay or silent upgrade |
-| Patch touches `.env`, AGENTS.md or unapproved path | Rejected by host patch validator before writing |
+| Patch touches an environment file, `AGENTS.md` or `CLAUDE.md` in any directory, or an unapproved path | Rejected by host patch validator before writing |
 | Code process interrupted with ambiguous write | Lease quarantined; no automatic replay |
 | Patch artifact modified after a code run | Reviewer fails byte-level SHA-256 check |
 | Git HEAD changes or original checkout becomes dirty | Reviewer refuses stale base snapshot |

@@ -36,6 +36,25 @@ def test_protected_paths_are_matched_without_regard_to_case(project, path):
 
 
 @pytest.mark.parametrize('path', [
+    'sub/AGENTS.md', 'a/b/CLAUDE.md', 'Sub/Agents.MD', 'docs/claude.md',
+    '.envrc', 'sub/.envrc', '.ENVRC', 'secrets.env', 'config/Prod.ENV', 'a/b/local.env',
+], ids=str)
+def test_nested_agent_files_and_environment_files_are_protected(project, path):
+    """An agent instruction file steers an agent from any directory, and an environment file holds secrets."""
+    root, _, _ = project
+    with pytest.raises(UnsafePatch, match='Protected repository path'):
+        PatchValidator().inspect(patch_for(path), root)
+
+
+@pytest.mark.parametrize('path', [
+    'docs/agents-guide.md', 'src/environment.py', 'app/envrc.py', 'src/claude_client.py', 'notes/env.md',
+], ids=str)
+def test_names_that_only_resemble_protected_files_are_still_allowed(project, path):
+    root, _, _ = project
+    PatchPolicy().check_path(root, path)
+
+
+@pytest.mark.parametrize('path', [
     'AGENTS.md.', '.git.', '.github./workflows/ci.yml', 'src./x.py', 'x/y.',
 ], ids=str)
 def test_a_path_component_ending_in_a_dot_is_rejected(project, path):
@@ -55,7 +74,7 @@ def test_check_path_alone_rejects_trailing_spaces_and_colons(project, path):
         PatchPolicy().check_path(root, path)
 
 
-@pytest.mark.parametrize('path', ['Docs/Guide.md', 'README.MD', 'my-agents.md', 'src/Claude.md', 'a/b.c.py'],
+@pytest.mark.parametrize('path', ['Docs/Guide.md', 'README.MD', 'my-agents.md', 'src/Claude_notes.md', 'a/b.c.py'],
                          ids=str)
 def test_ordinary_paths_with_capitals_or_similar_names_are_still_allowed(project, path):
     root, _, _ = project
