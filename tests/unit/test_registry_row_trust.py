@@ -150,6 +150,16 @@ def test_windows_path_never_taskkills_the_host_or_a_low_pid(windows, pid):
     assert report["identity_mismatch"] == 1
 
 
+@pytest.mark.parametrize("pid", ["4242", 4242.0, True])
+def test_windows_path_refuses_a_pid_that_is_not_a_plain_integer(windows, pid):
+    """A hand-edited row can hold text or a float that a lookup or taskkill would still accept."""
+    windows.live[pid] = C.ProcessIdentity(4242, "win:1")
+    registry = OneRow(windows_row(pid, "win:1"))
+    report = C.OrphanReaper(registry, Journal(), term_grace_seconds=0.0).reap(leader_generation=2)
+    assert windows.taskkills == []
+    assert report["identity_mismatch"] == 1
+
+
 def test_windows_path_live_process_with_no_recorded_identity_is_unconfirmed(windows):
     windows.live[4242] = C.ProcessIdentity(4242, "win:1")
     registry, journal = OneRow(windows_row(4242, "")), Journal()
