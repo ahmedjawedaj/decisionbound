@@ -3096,6 +3096,14 @@ group (POSIX) or job object (Windows). Deadlines, cancellation, leadership loss
 and output floods end in a confirmed termination, or in an explicit
 ``ContainmentFailure`` that the journal turns into a blocked task.
 
+On POSIX, confirmed means the process group is empty and no descendant that the
+host saw outside the group is alive. The host watches the child's process tree
+while it runs and again before it kills it. A descendant seen outside the group
+is not killed, and the result is unconfirmed. A host that cannot list processes
+confirms nothing. A descendant that left the group and was re-parented to init
+before the host looked is not visible, so confirmed is not a proof of an empty
+tree.
+
 What this is not: a security sandbox. Descendants that call ``setsid`` or
 ``setpgid`` escape a POSIX group. Windows processes that break away from the job
 or start through WMI or a service escape the job. There is no filesystem,

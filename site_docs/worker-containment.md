@@ -17,7 +17,7 @@
 | The worker prints more than `max_output_bytes` | The tree is killed and the task is quarantined as `invalid_receipt`. |
 | The coordinator loses leadership | Workers are cancelled at the next tick. |
 | The coordinator is killed with `SIGKILL` | Workers keep running until the next coordinator starts. It reaps them before it dispatches anything. |
-| Termination cannot be proven | The task is quarantined as `containment_failed` and never retried, even for read-only kinds. |
+| Termination cannot be proven, including a POSIX descendant seen outside the process group that is still alive | The task is quarantined as `containment_failed` and never retried, even for read-only kinds. |
 | A `code` task on a host with only weak containment | The task is refused before anything is spawned. |
 
 ## Using it
@@ -85,7 +85,7 @@ A worker that returns after its claim was lost cannot finish the task, because `
 
 ## Process model per operating system
 
-**POSIX (Linux and macOS executed in CI).** Every spawn goes through a small stdlib-only launcher that applies resource limits and then `exec`s your argv in a new session. This avoids `preexec_fn`, which is unsafe in a threaded coordinator. Termination is `SIGTERM` to the process group, a grace period, then `SIGKILL`, then confirmation that no live process remains in the group. The worker's exit is observed without reaping it, so the group is killed before the process id can be recycled. Where `os.waitid` is missing (macOS), the leader is reaped first, which leaves a tiny recycling window.
+**POSIX (Linux and macOS executed in CI).** Every spawn goes through a small stdlib-only launcher that applies resource limits and then `exec`s your argv in a new session. This avoids `preexec_fn`, which is unsafe in a threaded coordinator. Termination is `SIGTERM` to the process group, a grace period, then `SIGKILL`, then confirmation that no live process remains in the group. While the worker runs, the host also lists its descendants about four times a second and once more just before it kills them, and remembers the ones outside the group. Those are not killed. If any of them is still alive at confirmation, or the host cannot list processes, the result is `unconfirmed` and the task is blocked. This is a best effort check, not tracking by the kernel. The worker's exit is observed without reaping it, so the group is killed before the process id can be recycled. Where `os.waitid` is missing (macOS), the leader is reaped first, which leaves a tiny recycling window.
 
 **Windows (executed in CI, except the new reaper job check).** A job object named `Local\dbound-<id>` with kill-on-close. The launcher waits on a one byte gate on stdin while the parent assigns it to the job, so no descendant is born outside the job. Termination is `TerminateJobObject`, which has no graceful phase. If a job cannot be created or assigned, the fallback is `taskkill /PID /T /F`, reported as `windows_tree_best_effort`. That fallback misses re-parented descendants, so it is refused for `code` tasks and whenever `require_strong` is true.
 
@@ -114,6 +114,7 @@ When a coordinator acquires leadership it runs the reaper before its first dispa
 | Live process, same start token | Kill the tree | `terminated` |
 | Live process, different start token | Send no signal | `identity_mismatch` |
 | Leader gone, group empty | Nothing to do | `gone` |
+| Live process, same start token, but a descendant outside the group is still alive after the kill (POSIX) | Kill the group, block the task | `unconfirmed` |
 | Leader gone, group still alive (POSIX) | Send no signal, block the task | `unconfirmed` |
 | Crash between intent and spawn | Block the task | `unconfirmed` |
 | Windows `windows_job` row, job still exists | Terminate the job, confirm it is empty | `terminated`, or `unconfirmed` if it never empties |
@@ -125,7 +126,7 @@ The reaper never changes task state except to block an unconfirmed task. The jou
 
 ## What is not guaranteed
 
-- A POSIX descendant that calls `setsid` or `setpgid` escapes the group.
+- A POSIX descendant that calls `setsid` or `setpgid` escapes the group and is not killed. The host reports `unconfirmed` when it saw that descendant outside the group while a live parent still linked it to the worker. One that left the group and was re-parented to init before the host looked is not seen, so a confirmed result on POSIX does not prove the tree is empty. After a leader that is already gone, the reaper cannot see escaped descendants at all.
 - A Windows process that breaks away from the job, or starts through WMI or a service, escapes the job.
 - The `taskkill` fallback misses re-parented descendants.
 - There is no filesystem, network, credential or syscall isolation. No cgroups, namespaces, seccomp or AppContainer. Use the [Docker coding sandbox](sandboxing.md) for that.
@@ -134,7 +135,7 @@ The reaper never changes task state except to block an unconfirmed task. The jou
 - Existing in-process workers (`PreparationWorker`, `CodingRepairWorker`) were not converted. They are still not killable.
 - On Windows, a `windows_job` orphan row is settled through the named job object when that job can still be opened (open by name, terminate, mark `terminated` only when the job reports no active processes). When no job can be opened, the earlier identity check and `taskkill` fallback apply unchanged. The decision logic and the `OpenJobObjectW` call shape are unit tested with fakes on every OS. The real Windows execution of that new check is **unverified** until a windows-latest run reports `test_open_job_object_on_a_real_windows_host`. Rows at `windows_tree_best_effort` still use `taskkill` by process id, which misses descendants that left the tree.
 - On Windows, the CPU time limit and memory limit are enforced by the job object, but there is no open file limit.
-- A descendant that escapes the group and keeps the worker's stdout open is not detected. The run can finish while that process lives on.
+- A descendant that escapes the group and keeps the worker's stdout open, but is not seen outside the group as described above, is not detected. The run can finish while that process lives on.
 - `RLIMIT_CPU` and `RLIMIT_AS` apply per process, not to the whole tree.
 - A `WorkflowSupervisor` used without the coordinator never reaps orphans. Call `dbound workflow reap-orphans` or run the coordinator.
 - On hosts without `ps`-grade start times (the macOS `ps` fallback) the identity token has one second resolution.

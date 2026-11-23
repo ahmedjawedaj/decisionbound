@@ -6,6 +6,14 @@ group (POSIX) or job object (Windows). Deadlines, cancellation, leadership loss
 and output floods end in a confirmed termination, or in an explicit
 ``ContainmentFailure`` that the journal turns into a blocked task.
 
+On POSIX, confirmed means the process group is empty and no descendant that the
+host saw outside the group is alive. The host watches the child's process tree
+while it runs and again before it kills it. A descendant seen outside the group
+is not killed, and the result is unconfirmed. A host that cannot list processes
+confirms nothing. A descendant that left the group and was re-parented to init
+before the host looked is not visible, so confirmed is not a proof of an empty
+tree.
+
 What this is not: a security sandbox. Descendants that call ``setsid`` or
 ``setpgid`` escape a POSIX group. Windows processes that break away from the job
 or start through WMI or a service escape the job. There is no filesystem,
@@ -45,6 +53,7 @@ _CONFIRM_SECONDS = 5.0
 _JOB_NAME_PREFIX = "Local\\dbound-"
 _CONTAINMENT_ID = re.compile(r"[A-Za-z0-9_]{1,64}")
 _POLL_SECONDS = 0.02
+_ESCAPE_SCAN_SECONDS = 0.25
 
 
 class ContainmentError(RuntimeError):
@@ -308,6 +317,65 @@ def _ps_group_states(pgid: int) -> list[str] | None:
     return states
 
 
+def _process_table() -> dict[int, tuple[int, int, str]] | None:
+    """Map every pid to ``(ppid, pgid, state)``, or None when the host cannot list processes."""
+    table: dict[int, tuple[int, int, str]] = {}
+    if sys.platform.startswith("linux"):
+        try:
+            names = os.listdir("/proc")
+        except OSError:
+            return None
+        for name in names:
+            fields = _linux_stat_fields(int(name)) if name.isdigit() else None
+            if fields and len(fields) > 2:
+                table[int(name)] = (int(fields[1]), int(fields[2]), fields[0])
+        return table
+    try:
+        done = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,pgid=,stat="], capture_output=True, text=True,
+                              timeout=10, env={"LC_ALL": "C", "PATH": os.environ.get("PATH", "/usr/bin:/bin")})
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if done.returncode != 0:
+        return None
+    for line in done.stdout.splitlines():
+        parts = line.split()
+        if len(parts) >= 4 and all(part.isdigit() for part in parts[:3]):
+            table[int(parts[0])] = (int(parts[1]), int(parts[2]), parts[3])
+    return table or None
+
+
+def _escaped_descendants(root_pid: int, pgid: int) -> list[ProcessIdentity] | None:
+    """Live descendants of ``root_pid`` that are outside process group ``pgid``.
+
+    A group kill cannot reach these. None when the host cannot list processes.
+    Only descendants still linked to ``root_pid`` through live parents are
+    visible. One that was already re-parented to init is not.
+    """
+    table = _process_table()
+    if table is None:
+        return None
+    children: dict[int, list[int]] = {}
+    for pid, (ppid, _group, _state) in table.items():
+        children.setdefault(ppid, []).append(pid)
+    found: list[ProcessIdentity] = []
+    seen, pending = {root_pid}, [root_pid]
+    while pending:
+        for pid in children.get(pending.pop(), ()):
+            if pid in seen:
+                continue
+            seen.add(pid)
+            pending.append(pid)
+            identity = process_identity(pid) if table[pid][1] != pgid else None
+            if identity is not None:
+                found.append(identity)
+    return found
+
+
+def _any_alive(identities: Sequence[ProcessIdentity]) -> bool:
+    """True when any of these processes still runs under the identity that was recorded."""
+    return any(_identity_matches(item.pid, item.start_token) for item in identities)
+
+
 def _signal_group(pgid: int, sig: int) -> bool:
     """Signal a whole process group. Returns False when the group no longer exists."""
     try:
@@ -522,6 +590,9 @@ class ContainedProcess:
         self._job = job
         self._returncode: int | None = None
         self._confirmed: bool | None = None
+        self._escaped: dict[int, ProcessIdentity] = {}
+        self._tree_unknown = False
+        self._next_scan = 0.0
         self._buffer = bytearray()
         self._limit = 0
         self._overflow = threading.Event()
@@ -655,6 +726,9 @@ class ContainedProcess:
         if self._returncode is not None:
             return self._returncode
         if not self._leader_exited():
+            if not _IS_NT and time.monotonic() >= self._next_scan:
+                self._next_scan = time.monotonic() + _ESCAPE_SCAN_SECONDS
+                self._watch_tree()
             return None
         if _IS_NT:
             self._windows_kill()
@@ -675,6 +749,7 @@ class ContainedProcess:
         if _IS_NT:
             self._windows_kill()
         else:
+            self._watch_tree()
             _signal_group(self.pgid, signal.SIGTERM)
             end = time.monotonic() + max(0.0, grace_seconds)
             while time.monotonic() < end:
@@ -687,6 +762,15 @@ class ContainedProcess:
             _signal_group(self.pgid, signal.SIGKILL)
         return self._reap_and_confirm()
 
+    def _watch_tree(self) -> None:
+        """Remember live descendants outside the group, which a group kill cannot reach."""
+        found = _escaped_descendants(self.pid, self.pgid)
+        if found is None:
+            self._tree_unknown = True
+            return
+        for item in found:
+            self._escaped[item.pid] = item
+
     def _windows_kill(self) -> None:
         """Kill the Windows tree through the job, or ``taskkill`` when there is no job."""
         if self._job is not None:
@@ -695,7 +779,11 @@ class ContainedProcess:
             subprocess.run(["taskkill", "/PID", str(self.pid), "/T", "/F"], capture_output=True)
 
     def _reap_and_confirm(self) -> bool:
-        """Reap the leader, then wait (bounded) for the group or job to be empty."""
+        """Reap the leader, then wait (bounded) for the group or job to be empty.
+
+        On POSIX, descendants seen outside the group must be dead too, and a host
+        that cannot list processes cannot confirm anything.
+        """
         end = time.monotonic() + _CONFIRM_SECONDS
         while self._returncode is None:
             try:
@@ -704,12 +792,15 @@ class ContainedProcess:
                 if time.monotonic() > end:
                     self._confirmed = False
                     return False
+        if self._tree_unknown:
+            self._confirmed = False  # the host could not list processes, so it cannot show the tree is gone
+            return False
         while True:
             if _IS_NT:
                 empty = (self._job.active_processes() == 0 if self._job is not None
                          else process_identity(self.pid) is None)
             else:
-                empty = not _group_alive(self.pgid, leader_reaped=True)
+                empty = not _group_alive(self.pgid, leader_reaped=True) and not _any_alive(list(self._escaped.values()))
             if empty:
                 self._confirmed = True
                 return True
@@ -946,6 +1037,7 @@ class OrphanReaper:
                 return "identity_mismatch"
         except ProcessLookupError:
             return "gone"
+        escaped = _escaped_descendants(row["pid"], row["pgid"])
         try:
             if not _signal_group(row["pgid"], signal.SIGTERM):
                 return "gone"
@@ -960,6 +1052,8 @@ class OrphanReaper:
             if time.monotonic() > end:
                 return "unconfirmed"
             time.sleep(_POLL_SECONDS)
+        if escaped is None or _any_alive(escaped):
+            return "unconfirmed"  # a descendant outside the group may still run
         return "terminated"
 
 

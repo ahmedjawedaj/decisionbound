@@ -917,3 +917,120 @@ def test_ps_group_listing_sees_a_zombie_only_group_as_not_runnable(env):
         time.sleep(0.05)
     assert all(state.startswith("Z") for state in C._ps_group_states(proc.pid))  # unreaped zombie
     proc.wait()
+
+
+# ---------------------------------------------------------------------------
+# A descendant that left the process group must never be reported as dead
+# ---------------------------------------------------------------------------
+ESCAPEE_TREE = _PIDFILE + '''
+import json, os, subprocess, sys, time
+pidfile, mode = sys.argv[1], sys.argv[2]
+sys.stdin.read()
+lifetime = "0.3" if mode == "short_lived" else "600"
+escapee = subprocess.Popen([sys.executable, "-c", f"__import__('time').sleep({lifetime})"],
+                           start_new_session=True, stdin=subprocess.DEVNULL,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+write_ready(pidfile, child=os.getpid(), escapee=escapee.pid)
+time.sleep(1.5)
+if mode == "finish":
+    print(json.dumps({"status": "mock_passed"}))
+    sys.exit(0)
+time.sleep(600)
+'''
+
+
+def run_escapee_worker(env, mode, *, deadline=4):
+    """Run a code task whose worker starts a descendant in a new session. Return (info, task entry)."""
+    pidfile = env.tmp / "escapee.json"
+    wid = make_workflow(env, "code", cost=0.5, budget=1.0)
+    worker = contained(env, ESCAPEE_TREE, pidfile, mode, deadline=deadline, grace=1)
+    supervise(env, {"code": worker}, wid)
+    info = json.loads(pidfile.read_text()) if pidfile.exists() else pytest.fail("child never became ready")
+    env.tracked += [info["child"], info["escapee"]]
+    return info, task_state(env, wid)
+
+
+@pytest.mark.skipif(IS_WINDOWS, reason="POSIX sessions: setsid has no Windows equivalent")
+def test_deadline_is_unconfirmed_when_a_descendant_left_the_process_group(env):
+    info, entry = run_escapee_worker(env, "hang")
+    assert pid_alive(info["escapee"]), "the escaped descendant was expected to survive the group kill"
+    assert wait_dead([info["child"]], timeout=2) == []
+    assert [r["state"] for r in rows(env.store)] == ["unconfirmed"]
+    assert entry["state"] == "blocked" and entry["error_type"] == "containment_failed"
+
+
+@pytest.mark.skipif(IS_WINDOWS, reason="POSIX sessions: setsid has no Windows equivalent")
+def test_a_worker_that_exits_normally_is_unconfirmed_when_a_descendant_left_the_process_group(env):
+    info, entry = run_escapee_worker(env, "finish")
+    assert pid_alive(info["escapee"]), "the escaped descendant was expected to outlive its parent"
+    assert [r["state"] for r in rows(env.store)] == ["unconfirmed"]
+    assert entry["state"] == "blocked" and entry["error_type"] == "containment_failed"
+
+
+@pytest.mark.skipif(IS_WINDOWS, reason="POSIX sessions: setsid has no Windows equivalent")
+def test_a_descendant_that_left_the_group_and_already_exited_does_not_block_a_confirmed_kill(env):
+    info, entry = run_escapee_worker(env, "short_lived")
+    assert not pid_alive(info["escapee"])
+    assert [r["state"] for r in rows(env.store)] == ["terminated"]
+    assert entry["error_type"] == "WorkerDeadlineExceeded"
+
+
+@pytest.mark.skipif(IS_WINDOWS, reason="POSIX process listing")
+def test_termination_is_unconfirmed_when_the_host_cannot_list_processes(env, monkeypatch):
+    monkeypatch.setattr(C, "_process_table", lambda: None, raising=False)
+    monkeypatch.setattr(C, "_CONFIRM_SECONDS", 1.0)
+    proc = C.ContainedProcess.spawn([sys.executable, "-c", "__import__('time').sleep(600)"],
+                                    env={"PATH": os.environ.get("PATH", "")})
+    env.tracked.append(proc.pid)
+    try:
+        assert proc.terminate_tree(0.5) is False
+        assert proc.confirmed is False
+        assert wait_dead([proc.pid], timeout=2) == []
+    finally:
+        proc.close()
+
+
+@pytest.mark.skipif(IS_WINDOWS, reason="POSIX sessions: setsid has no Windows equivalent")
+def test_reaper_marks_unconfirmed_when_the_orphaned_worker_has_a_descendant_outside_its_group(env):
+    pidfile = env.tmp / "escapee.json"
+    script = _PIDFILE + '''
+import os, subprocess, sys, time
+escapee = subprocess.Popen([sys.executable, "-c", "__import__('time').sleep(600)"], start_new_session=True,
+                           stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+write_ready(sys.argv[1], child=os.getpid(), escapee=escapee.pid)
+time.sleep(600)
+'''
+    leader = subprocess.Popen([sys.executable, "-c", script, str(pidfile)], start_new_session=True,
+                              stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    info = wait_for_pidfile(pidfile)
+    env.tracked += [leader.pid, info["escapee"]]
+    wid = make_workflow(env, "code")
+    lease = env.journal.claim(wid, worker_kinds={"code"}, lease_seconds=30)
+    register(env, leader.pid, owner=dead_owner(), workflow_id=wid, generation=lease.generation)
+    report = reaper(env).reap(leader_generation=1)
+    leader.wait()
+    assert pid_alive(info["escapee"])
+    assert [r["state"] for r in rows(env.store)] == ["unconfirmed"] and report["unconfirmed"] == 1
+    assert report["terminated"] == 0
+    assert task_state(env, wid)["error_type"] == "containment_failed"
+
+
+@pytest.mark.skipif(IS_WINDOWS, reason="POSIX sessions: setsid has no Windows equivalent")
+def test_a_descendant_first_seen_at_termination_time_is_also_unconfirmed(env, monkeypatch):
+    monkeypatch.setattr(C, "_ESCAPE_SCAN_SECONDS", 3600.0)  # no periodic scan after the first poll
+    info, entry = run_escapee_worker(env, "hang")
+    assert pid_alive(info["escapee"])
+    assert [r["state"] for r in rows(env.store)] == ["unconfirmed"]
+    assert entry["error_type"] == "containment_failed"
+
+
+@pytest.mark.skipif(IS_WINDOWS, reason="POSIX process listing")
+def test_reaper_marks_unconfirmed_when_the_host_cannot_list_processes(env, monkeypatch):
+    bystander = spawn_bystander()
+    env.tracked.append(bystander.pid)
+    register(env, bystander.pid, owner=dead_owner())
+    monkeypatch.setattr(C, "_process_table", lambda: None, raising=False)
+    report = reaper(env).reap(leader_generation=1)
+    assert wait_dead([bystander.pid], timeout=5) == []
+    assert [r["state"] for r in rows(env.store)] == ["unconfirmed"] and report["unconfirmed"] == 1
+    bystander.wait()
