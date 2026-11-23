@@ -1798,6 +1798,14 @@ to_dict() -> dict
 
 Serialize a test receipt without storing raw test output.
 
+``image`` is the image reference the sandbox was given. ``image_digest`` is the ``sha256:``
+digest that reference pins, or empty when it is a mutable tag. ``daemon_endpoint`` is the
+``unix://`` daemon the container CLI was told to use, or ``default`` for its own default.
+The three keys are left out when empty, so receipts that carry none serialize and hash
+exactly as before. The three fields are in the receipt hash and in the CLI JSON output, but
+the persisted ledger events carry only the hash. ``daemon_endpoint`` is the configured intent
+and not the observed daemon.
+
 ### `CodingOutcome`
 
 Stable receipt for a bounded patch attempt.
@@ -2029,6 +2037,14 @@ The default test executor is an inert deterministic mock for CI and research.
 Real execution requires an explicitly authorized Docker-compatible daemon:
 no network, no privileges, explicit CPU/memory/PID and timeout ceilings.
 
+### `image_digest`
+
+```python
+image_digest(image: str) -> str
+```
+
+Return the ``sha256:`` digest an image reference pins, or an empty string for a mutable tag.
+
 ### `ScriptedTestRunner`
 
 Deterministic test fake; does not execute or certify user code.
@@ -2058,6 +2074,23 @@ socket; only the isolated worktree is mounted read/write. It may mutate
 that worktree, which the verifier detects after execution.
 A root caller is refused before contacting the daemon. On platforms without
 POSIX user IDs the container uses the fixed unprivileged ID 1000:1000.
+
+Daemon trust: the CLI gets a built environment, never the caller's. ``DOCKER_CONTEXT`` and
+``DOCKER_CONFIG`` are not passed on, and for the ``docker`` binary the context is pinned to
+``default``, so a context saved in the user's Docker config (``docker context use``) cannot move
+the tests to another daemon. A local ``unix://`` ``DOCKER_HOST`` is still honoured and any other
+``DOCKER_HOST`` is refused. The pin also moves a setup that picks its daemon only with ``docker
+context use`` (rootless Docker, colima, Docker Desktop, lima, remote contexts) to the default
+socket. Such a setup must set ``DOCKER_HOST=unix://<socket>``, which is honoured and not
+overridden. Every test receipt records the endpoint in ``daemon_endpoint``. It is the configured
+intent and not the observed daemon: the literal ``default`` or the ``DOCKER_HOST`` string, which
+is also recorded for ``podman`` although Podman ignores it.
+
+Image trust: the image is always run as given with ``--pull never``. Every test receipt records it in
+``image``, and ``image_digest`` holds its ``sha256:`` digest, or is empty for a mutable tag. With
+``require_digest=True``, or ``DBOUND_REQUIRE_IMAGE_DIGEST=1`` in the environment, a reference that
+does not pin a digest is refused. The argument can tighten the environment switch but never loosen it.
+The environment is read once, when the runner is constructed.
 
 #### `DockerTestRunner.run`
 
