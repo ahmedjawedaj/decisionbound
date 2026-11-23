@@ -1036,9 +1036,7 @@ def test_summary_on_a_dead_pipe_leaves_nothing_to_fail_at_interpreter_exit():
                              stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     try:
         child.stdout.close()
-        child.stdin.write(b"go")
-        child.stdin.close()
-        _, errors = child.communicate(timeout=30)
+        _, errors = child.communicate(input=b"go", timeout=30)
     finally:
         if child.poll() is None:
             child.kill()
