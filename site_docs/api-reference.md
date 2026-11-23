@@ -756,6 +756,10 @@ repository_readonly_tools(root: Path, max_file_bytes: int = 512000) -> ToolRegis
 
 Create safe local file inspection/search tools for a single project root.
 
+Both tools refuse excluded directories and hidden names, secret file names (see ``_SECRET_NAMES`` and
+``_SECRET_PATTERNS``), noncanonical names (a trailing dot or space, or a colon, in any part) and
+symlinks. Names are compared without regard to case. Only a fixed set of text suffixes is served.
+
 This is a bounded inspection utility, not a secure sandbox against code
 executing with the same operating-system permissions as the process.
 
@@ -3355,8 +3359,13 @@ under an older leadership generation (the owner then lost its fence). A tree
 is killed only when the live process at the recorded pid has the recorded
 start token, so a recycled pid is never signalled. If the leader is gone but
 its group is still alive, ownership cannot be verified: the row is marked
-``unconfirmed``, nothing is killed, and the task is blocked. The journal
-remains the only authority over task state.
+``unconfirmed``, nothing is killed, and the task is blocked. The same holds
+for a live process under a row with no recorded start token, because the
+identity could not be read at spawn. A row that names this host process, a
+process id below 2 or (POSIX) a group that is not the process's own is never
+signalled and is marked ``identity_mismatch``. Rows are not authenticated.
+See ``site_docs/worker-containment.md``. The journal remains the only
+authority over task state.
 
 #### `OrphanReaper.reap`
 

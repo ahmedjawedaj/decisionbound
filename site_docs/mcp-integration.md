@@ -45,7 +45,7 @@ There is no `execute_shell`, `write_file`, `install_skill`, `approve_decision`, 
 
 ## Workspace and authorization boundary
 
-The server operator binds it to an existing repository at launch. Tools never accept a project-root argument from the model. Every invocation reads from the verified, registered root; hidden paths, credential filenames, symlinked paths, binary files and oversized files are denied by the host.
+The server operator binds it to an existing repository at launch. Tools never accept a project-root argument from the model. Every invocation reads from the verified, registered root; hidden paths, excluded directories, secret-like file names (an exact set such as `credentials.json` and `id_rsa`, plus anchored patterns such as `*.pem`, `*.key`, `*.env`, `secrets.json` and `service-account*.json`, all matched without regard to case), names with a trailing dot or space or a colon, symlinked paths, binary files and oversized files are denied by the host. Ordinary names such as `environment.md`, `key_manager.py` and `secrets_policy.md` stay readable. The same rules apply to `search_project`, which skips such files.
 
 **Local stdio is trusted as the host operating-system user.** Any MCP host connected to it can access the exposed read-only repository data. This is not equivalent to multi-tenant authorization, and a remote MCP endpoint should not be deployed without a separately reviewed identity/auth implementation.
 
