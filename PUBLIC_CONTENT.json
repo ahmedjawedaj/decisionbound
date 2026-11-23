@@ -340,6 +340,7 @@
     "tests/unit/test_profiles.py",
     "tests/unit/test_provider_adapters.py",
     "tests/unit/test_pypi_release.py",
+    "tests/unit/test_registry_row_trust.py",
     "tests/unit/test_require_executed.py",
     "tests/unit/test_storage_fair_lock.py",
     "tests/unit/test_transferbench_controlled_v1.py",
