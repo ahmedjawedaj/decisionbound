@@ -19,12 +19,13 @@ import os
 from pathlib import Path
 import re
 import stat
+import subprocess
 from typing import Any
 
 from .code_artifacts import export_coding_patch
 from .code_journal import SQLiteRepairJournal
 from .code_patches import PatchValidator, UnsafePatch
-from .code_workspace import GitWorktreeManager, WorkspaceError
+from .code_workspace import GitCommandError, GitWorktreeManager, WorkspaceError
 from .identity import load_project
 from .storage import SQLiteRepository
 from .workflows import WorkflowJournal, _code_idempotency
@@ -34,6 +35,18 @@ _WF = re.compile(r"^wf_[a-f0-9]{32}$")
 
 class ReviewUnavailable(ValueError):
     """The workflow has no safe, unambiguous coding artifact to review."""
+
+
+class ReviewGitUnavailable(ReviewUnavailable):
+    """Git could not confirm the source commit or patch scope, so review is refused.
+
+    Raised when Git is missing, times out, exits with an error or the
+    repository is unreadable. Approval and export fail closed on it. The
+    message is fixed and never carries paths, Git stderr or environment text.
+    """
+
+    def __init__(self) -> None:
+        super().__init__("Git state could not be verified, so the review was refused")
 
 
 class ReviewConflict(ValueError):
@@ -152,6 +165,8 @@ class ReviewGate:
         try:
             project = load_project(project_path, self.repository)
             root, commit = GitWorktreeManager.check_source(project_path)
+        except (GitCommandError, subprocess.SubprocessError) as exc:
+            raise ReviewGitUnavailable() from exc
         except (ValueError, PermissionError, FileNotFoundError, WorkspaceError, OSError) as exc:
             raise ReviewUnavailable("Original project is missing or not clean") from exc
         if project.project_id != row["project_id"] or status["project_id"] != project.project_id:
@@ -233,9 +248,15 @@ class ReviewGate:
         data = self._patch_bytes(run_id, receipt)
         try:
             inspection = PatchValidator().inspect(data.decode("utf-8"), root)
-            PatchValidator().check_git_modes(root, inspection.paths)
         except (UnicodeError, UnsafePatch, OSError, ValueError) as exc:
             raise ReviewUnavailable("Patch failed independent scope validation") from exc
+        try:
+            PatchValidator().check_git_modes(root, inspection.paths)
+        except UnsafePatch as exc:
+            raise ReviewUnavailable("Patch failed independent scope validation") from exc
+        except (subprocess.SubprocessError, OSError, ValueError) as exc:
+            # This call only runs Git, so any other failure means Git could not answer.
+            raise ReviewGitUnavailable() from exc
         if (receipt.get("paths") != list(inspection.paths) or
                 inspection.sha256 != receipt.get("sha256")):
             raise ReviewUnavailable("Changed-file receipt does not match patch")

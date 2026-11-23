@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from collections.abc import Callable
 from typing import Any, NoReturn
+import fnmatch
 import hashlib
 from .identity import safe_relative_path
 from .models import ContextCapsule, WorkerResult
@@ -207,15 +208,66 @@ class BoundedReadOnlyAgent(AgentWorker):
         self._stop("step_budget", self.max_steps, RuntimeError("Agent loop exhausted its tool-step budget"))
 
 
-_EXCLUDED = {".git", ".decisionbound", "node_modules", ".venv", "__pycache__"}
-# Compared in lower case: a checkout on a filesystem that ignores case (macOS, Windows) serves
-# ``Credentials.json`` for ``credentials.json``, and a Linux repository may hold either spelling.
-_SECRET_NAMES = {".env", ".env.local", ".env.production", "credentials.json", "id_rsa", "id_ed25519"}
+# Compared in lower case against the lower-cased path parts. A checkout on a filesystem that ignores
+# case (macOS, Windows) serves ``Node_Modules`` for ``node_modules``.
+_EXCLUDED = frozenset({".git", ".decisionbound", "node_modules", ".venv", "__pycache__"})
+# Secret file names, compared in lower case with an exact match. A checkout on a filesystem that
+# ignores case serves ``Credentials.json`` for ``credentials.json``, and a Linux repository may hold
+# either spelling. Hidden names (a leading dot) are also refused as a whole, so the dotted names here
+# keep the policy from depending on that rule.
+_SECRET_NAMES = frozenset({
+    ".env", ".envrc", ".netrc", "_netrc", ".npmrc", ".pypirc", ".pgpass", ".git-credentials", ".htpasswd",
+    "credentials.json", "credentials.yaml", "credentials.yml", "credentials.txt",
+    "secrets.json", "secrets.yaml", "secrets.yml", "secrets.txt",
+    "secret.json", "secret.yaml", "secret.yml", "token.json",
+    "kubeconfig", "kube-config", "kube_config",
+    "id_rsa", "id_dsa", "id_ecdsa", "id_ed25519",
+})
+# Patterns matched with ``fnmatch.fnmatchcase`` on the lower-cased file name, never on the whole path.
+# Each one is anchored at the start or the end of the name and none is a bare substring, so
+# ``environment.md``, ``key_manager.py``, ``keys.md`` and ``secrets_policy.md`` stay readable. A key
+# or certificate suffix also matches when another suffix follows, such as ``server.key.txt``, because
+# the read tools serve ``.txt``, ``.md``, ``.json`` and ``.yaml`` files. The private key and
+# environment file patterns follow the patch policy in ``code_patches.py``.
+_SECRET_SUFFIXES = (".env", ".pem", ".key", ".p12", ".pfx", ".jks", ".keystore", ".tfvars", ".tfstate")
+_SECRET_PATTERNS = (
+    tuple(pattern for suffix in _SECRET_SUFFIXES for pattern in ("*" + suffix, "*" + suffix + ".*"))
+    + ("id_rsa*", "id_dsa*", "id_ecdsa*", "id_ed25519*",
+       "*credentials.json", "*credentials.yaml", "*credentials.yml",
+       "*secrets.json", "*secrets.yaml", "*secrets.yml", "client_secret*.json",
+       "*service-account*.json", "*service_account*.json", "*serviceaccount*.json",
+       "kubeconfig.*", "kube-config.*", "kube_config.*", "*.kubeconfig")
+)
 _SUPPORTED = {".py", ".md", ".txt", ".yaml", ".yml", ".json", ".ts", ".tsx", ".go", ".rs"}
+
+
+def _is_secret_name(name: str) -> bool:
+    """Tell whether a file name matches the secret name set or one of its patterns, in any case."""
+    folded = name.casefold()
+    return folded in _SECRET_NAMES or any(fnmatch.fnmatchcase(folded, pattern) for pattern in _SECRET_PATTERNS)
+
+
+def _is_noncanonical(part: str) -> bool:
+    """Tell whether a path part is a Windows alias or stream form of another name.
+
+    Windows drops a trailing dot or space (``node_modules.`` opens ``node_modules``) and a colon starts an
+    alternate data stream (``credentials.json:x``).
+    """
+    return part.endswith((".", " ")) or ":" in part
+
+
+def _is_protected_path(parts: tuple[str, ...]) -> bool:
+    """Tell whether a relative path is excluded, hidden, noncanonical or named like a secret file."""
+    return (any(part.casefold() in _EXCLUDED or part.startswith(".") or _is_noncanonical(part) for part in parts)
+            or _is_secret_name(parts[-1] if parts else ""))
 
 
 def repository_readonly_tools(root: Path, max_file_bytes: int = 512_000) -> ToolRegistry:
     """Create safe local file inspection/search tools for a single project root.
+
+    Both tools refuse excluded directories and hidden names, secret file names (see ``_SECRET_NAMES`` and
+    ``_SECRET_PATTERNS``), noncanonical names (a trailing dot or space, or a colon, in any part) and
+    symlinks. Names are compared without regard to case. Only a fixed set of text suffixes is served.
 
     This is a bounded inspection utility, not a secure sandbox against code
     executing with the same operating-system permissions as the process.
@@ -224,10 +276,9 @@ def repository_readonly_tools(root: Path, max_file_bytes: int = 512_000) -> Tool
     registry = ToolRegistry()
 
     def safe_file(path: str) -> Path:
-        """Deny hidden credential names and unsupported/binary file types."""
+        """Deny protected names (see ``_is_protected_path``) and unsupported/binary file types."""
         candidate = Path(path)
-        if (any(part in _EXCLUDED or part.startswith(".") for part in candidate.parts)
-                or candidate.name.casefold() in _SECRET_NAMES
+        if (_is_protected_path(candidate.parts)
                 or any((base / Path(*candidate.parts[:index])).is_symlink()
                        for index in range(1, len(candidate.parts) + 1))):
             raise PermissionError("Protected repository path")
@@ -257,7 +308,7 @@ def repository_readonly_tools(root: Path, max_file_bytes: int = 512_000) -> Tool
             inspected += 1
             if len(results) >= 10 or count >= 500 or inspected >= 2000:
                 break
-            if not file.is_file() or any(part in _EXCLUDED for part in file.relative_to(base).parts):
+            if not file.is_file() or any(part.casefold() in _EXCLUDED for part in file.relative_to(base).parts):
                 continue
             relative = str(file.relative_to(base))
             try:

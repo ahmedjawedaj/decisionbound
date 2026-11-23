@@ -109,6 +109,16 @@
           },
           "output_truncated": {
             "type": "boolean"
+          },
+          "image": {
+            "type": "string"
+          },
+          "image_digest": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          },
+          "daemon_endpoint": {
+            "type": "string"
           }
         }
       }

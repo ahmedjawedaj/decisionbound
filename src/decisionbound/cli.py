@@ -5,6 +5,9 @@ Every command can operate without an LLM account or third-party credentials.
 """
 from __future__ import annotations
 import json
+import errno
+import os
+import sys
 from pathlib import Path
 from dataclasses import asdict
 import typer
@@ -41,6 +44,56 @@ app.add_typer(release_cli, name="release")
 def _print(value: object) -> None:
     """Write stable machine-readable JSON for scripts and other clients."""
     typer.echo(json.dumps(value, sort_keys=True, indent=2, default=str))
+
+
+def _docker_runner(image: str):
+    """Build the Docker test runner, turning a refused configuration into a clean usage error.
+
+    The runner refuses an image that is not pinned by digest when DBOUND_REQUIRE_IMAGE_DIGEST=1.
+    """
+    from .code_sandbox import DockerTestRunner
+    try:
+        return DockerTestRunner(image)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc), param_hint='--image') from None
+
+
+def _discard_stdout() -> None:
+    """Point standard output at the null device after a write to it failed.
+
+    Python flushes standard output again when the interpreter exits. If the pipe or
+    terminal is gone and unwritten text is still buffered, that flush fails and the
+    exit status becomes 120. Redirecting the descriptor makes the later flush succeed.
+    """
+    try:
+        descriptor = sys.stdout.fileno()
+        null = os.open(os.devnull, os.O_WRONLY)
+        try:
+            os.dup2(null, descriptor)
+        finally:
+            os.close(null)
+    except (OSError, ValueError, AttributeError):
+        pass
+
+
+_OUTPUT_GONE = frozenset({errno.EPIPE, errno.EIO, errno.EBADF})
+
+
+def _print_final_summary(value: object) -> None:
+    """Print the stop summary, and lose only the summary when the output is gone.
+
+    A broken pipe, a vanished terminal or a closed stream drops the summary. Any other
+    write failure, such as a full disk, still fails so the caller can see it.
+    """
+    try:
+        _print(value)
+        sys.stdout.flush()
+    except ValueError:
+        _discard_stdout()
+    except OSError as exc:
+        if exc.errno not in _OUTPUT_GONE:
+            raise
+        _discard_stdout()
 
 
 @app.command("setup")
@@ -341,7 +394,6 @@ def code_apply(task: str, patch_file: Path = typer.Option(..., "--patch-file"),
     """
     import shlex
     from .code_execution import PatchFileProposer, run_coding_task
-    from .code_sandbox import DockerTestRunner
     from .settings import state_dir
     if not approve_writes or not allow_docker:
         raise typer.BadParameter('Both --approve-writes and --allow-docker are mandatory')
@@ -353,7 +405,7 @@ def code_apply(task: str, patch_file: Path = typer.Option(..., "--patch-file"),
     patch = patch_file.read_text(encoding='utf-8')
     result = run_coding_task(project_path=path, state_root=state_dir(), repository=repository(),
                              task=task, proposer=PatchFileProposer(patch),
-                             runner=DockerTestRunner(image), test_commands=commands,
+                             runner=_docker_runner(image), test_commands=commands,
                              approved_writes=True, timeout_seconds=timeout)
     _print(result.to_dict())
 
@@ -380,7 +432,6 @@ def code_propose(task: str, target: list[str] = typer.Option([], "--target"),
     """
     import shlex
     from .code_execution import run_coding_task
-    from .code_sandbox import DockerTestRunner
     from .code_provider import ModelPatchProposer
     from .model_planner import ModelLimits, Pricing
     from .providers import AnthropicJSONTransport, OpenAICompatibleJSONTransport
@@ -406,7 +457,7 @@ def code_propose(task: str, target: list[str] = typer.Option([], "--target"),
                     context=approved_context)
     commands = tuple(tuple(shlex.split(x)) for x in test_cmd)
     result = run_coding_task(project_path=path, state_root=state_dir(), repository=store,
-                             task=task, proposer=proposer, runner=DockerTestRunner(image),
+                             task=task, proposer=proposer, runner=_docker_runner(image),
                              test_commands=commands, approved_writes=True,
                              source_targets=tuple(target))
     value = result.to_dict()
@@ -521,7 +572,6 @@ def code_repair_provider(task: str, contract: Path = typer.Option(..., '--contra
     choose a shell command or authorize any writes.
     """
     from .code_repair import RepairLimits, ModelRepairFactory, run_repair_session
-    from .code_sandbox import DockerTestRunner
     from .model_planner import Pricing
     from .providers import OpenAICompatibleJSONTransport, AnthropicJSONTransport
     from .settings import state_dir
@@ -537,7 +587,7 @@ def code_repair_provider(task: str, contract: Path = typer.Option(..., '--contra
     factory = ModelRepairFactory(transport, Pricing(input_price, output_price))
     result = run_repair_session(idempotency_key=key, project_path=path,
         state_root=state_dir(), repository=repository(), task=task, contract=approved,
-        proposer_factory=factory, runner=DockerTestRunner(image),
+        proposer_factory=factory, runner=_docker_runner(image),
         limits=RepairLimits(max_attempts=max_attempts, max_model_cost_usd=max_cost),
         source_targets=tuple(source_target), approved_writes=True, resume=resume)
     _print(result.to_dict())
@@ -562,7 +612,6 @@ def code_native_propose(task: str, contract: Path = typer.Option(..., '--contrac
     real installed hosts until user-run connected tests are complete.
     """
     from .code_native import CodexCLIPatchProposer, ClaudeCLIPatchProposer
-    from .code_sandbox import DockerTestRunner
     from .code_execution import run_coding_task
     from .settings import state_dir
     if not all((allow_native, allow_docker, approve_writes)):
@@ -577,7 +626,7 @@ def code_native_propose(task: str, contract: Path = typer.Option(..., '--contrac
         raise typer.BadParameter('Harness must be codex or claude')
     approved = _load_contract_file(contract)
     outcome = run_coding_task(project_path=path, state_root=state_dir(), repository=repository(),
-        task=task, proposer=proposer, runner=DockerTestRunner(image),
+        task=task, proposer=proposer, runner=_docker_runner(image),
         test_commands=approved.test_commands, contract=approved,
         source_targets=tuple(source_target), approved_writes=True)
     _print(outcome.to_dict())
@@ -721,6 +770,13 @@ def workflow_serve(
     crash the next coordinator kills what the old one left behind. On a host
     without strong containment every task is refused and blocked. The command
     stops with an error when the child cannot import the installed package.
+
+    SIGINT, SIGTERM, SIGHUP (closed terminal) and SIGQUIT start the same orderly
+    stop, which cancels contained workers and releases leadership. SIGHUP and
+    SIGQUIT are handled only where the platform has them and only when the
+    launcher did not set them to ignore, as nohup does. Previous handlers are
+    restored on exit. If the output pipe or terminal is gone at the end, only the summary
+    is lost. Any other print failure, such as a full disk, still fails the command.
     """
     import signal
     import threading
@@ -735,11 +791,19 @@ def workflow_serve(
         """Request graceful drain; verified task ownership stays host-fenced."""
         stop.set()
 
-    if threading.current_thread() is threading.main_thread():
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            original_handlers[sig] = signal.getsignal(sig)
-            signal.signal(sig, request_stop)
     try:
+        if threading.current_thread() is threading.main_thread():
+            stop_signals = [signal.SIGINT, signal.SIGTERM]
+            # Closing the terminal sends SIGHUP and Ctrl-backslash sends SIGQUIT. Windows has
+            # neither. A launcher such as nohup may have set one to ignore on purpose, so that
+            # choice is kept and only a signal that would still kill the process is handled.
+            for name in ('SIGHUP', 'SIGQUIT'):
+                extra = getattr(signal, name, None)
+                if extra is not None and signal.getsignal(extra) != signal.SIG_IGN:
+                    stop_signals.append(extra)
+            for sig in stop_signals:
+                original_handlers[sig] = signal.getsignal(sig)
+                signal.signal(sig, request_stop)
         if contained:
             from .containment import ProcessRegistry
             from .worker_child import child_can_import, contained_preparation_worker
@@ -759,14 +823,18 @@ def workflow_serve(
             max_dispatch_per_workflow=1 if low_resource else 2)
         runner = BackgroundCoordinator(store, project_id=project.project_id,
                                        settings=settings, workers=workers)
-        _print(runner.run(stop_event=stop, max_seconds=max_seconds, once=once))
+        summary = runner.run(stop_event=stop, max_seconds=max_seconds, once=once)
+        # After a hangup the terminal or pipe is often gone. The stop already finished,
+        # so lose only the summary.
+        _print_final_summary(summary)
     except (CoordinatorConflict, ResourceBudgetExceeded) as exc:
         # Do not leak worker output or process secrets into CLI errors.
         typer.echo(f'Coordinator stopped: {type(exc).__name__}', err=True)
         raise typer.Exit(2) from exc
     finally:
         for sig, original in original_handlers.items():
-            signal.signal(sig, original)
+            # getsignal returns None for a handler installed from C. Fall back to the default.
+            signal.signal(sig, signal.SIG_DFL if original is None else original)
 
 
 @workflow_cli.command("reap-orphans")
@@ -820,7 +888,7 @@ def workflow_supervised_code(
     """
     from .supervised_coding import SupervisedCodingOrchestrator, SupervisedCodingRequest
     from .code_repair import ScriptedRepairFactory, RepairLimits
-    from .code_sandbox import DockerTestRunner, ScriptedTestRunner
+    from .code_sandbox import ScriptedTestRunner
     from .settings import state_dir
     if approve_writes is not True:
         raise typer.BadParameter('Explicit --approve-writes is required')
@@ -836,7 +904,7 @@ def workflow_supervised_code(
         raise typer.BadParameter('Docker flags are invalid in mock mode')
     approved = _load_contract_file(contract)
     factory = ScriptedRepairFactory(tuple(f.read_text(encoding='utf-8') for f in patch_file))
-    runner = DockerTestRunner(docker_image) if mode == 'docker' else ScriptedTestRunner([0] * 5 * len(patch_file))
+    runner = _docker_runner(docker_image) if mode == 'docker' else ScriptedTestRunner([0] * 5 * len(patch_file))
     request = SupervisedCodingRequest(task, approved, tuple(source_target),
               limits=RepairLimits(max_attempts=len(patch_file), max_model_cost_usd=0),
               require_red_test=require_red_test)
