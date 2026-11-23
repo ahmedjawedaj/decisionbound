@@ -917,3 +917,156 @@ def test_ps_group_listing_sees_a_zombie_only_group_as_not_runnable(env):
         time.sleep(0.05)
     assert all(state.startswith("Z") for state in C._ps_group_states(proc.pid))  # unreaped zombie
     proc.wait()
+
+
+# ---------------------------------------------------------------------------
+# Hangup and quit signals reach the same orderly stop as SIGTERM
+# ---------------------------------------------------------------------------
+HANGUP_SIGNALS = [name for name in ("SIGHUP", "SIGQUIT") if hasattr(signal, name)]
+
+# Runs the real `dbound workflow serve --contained` command with a stand-in
+# contained worker, so a real child and grandchild exist to be cleaned up. The
+# stop grace is shortened to one second so the test does not wait ten.
+SERVE_HARNESS = '''
+import dataclasses, sys
+from decisionbound import background, worker_child
+from decisionbound.containment import ContainedWorker
+pidfile, child_script, home = sys.argv[1:4]
+
+@dataclasses.dataclass(frozen=True)
+class QuickStop(background.CoordinatorSettings):
+    worker_stop_grace_seconds: int = 1
+
+background.CoordinatorSettings = QuickStop
+worker_child.child_can_import = lambda: True
+worker_child.contained_preparation_worker = lambda registry, **_: ContainedWorker(
+    [sys.executable, "-c", child_script, pidfile], registry=registry, deadline_seconds=600)
+from decisionbound.cli import app
+app(["workflow", "serve", "--path", home, "--poll-seconds", "0.1", "--contained"])
+'''
+
+
+@pytest.mark.skipif(IS_WINDOWS, reason="POSIX signals")
+@pytest.mark.parametrize("name", ["SIGTERM"] + HANGUP_SIGNALS)
+def test_serve_stops_in_order_on_terminate_hangup_and_quit(env, name):
+    pidfile = env.tmp / "tree.json"
+    make_workflow(env, "prepare")
+    service = subprocess.Popen(
+        [sys.executable, "-c", SERVE_HARNESS, str(pidfile), TREE_CHILD, str(env.home)],
+        env=dict(os.environ, PYTHONPATH=SOURCE_ROOT, DBOUND_HOME=str(env.store.path.parent)),
+        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        start_new_session=True)
+    try:
+        info = wait_for_pidfile(pidfile)
+        env.tracked += [info["child"], info["grandchild"], service.pid]
+        assert LocalCoordinatorLeader(env.store).status()["running"]
+        os.kill(service.pid, getattr(signal, name))
+        output, _ = service.communicate(timeout=30)
+    finally:
+        if service.poll() is None:
+            service.kill()
+            service.wait(timeout=15)
+    assert service.returncode == 0, f"{name} ended the service with status {service.returncode}"
+    assert json.loads(output)["stopped"] is True
+    assert wait_dead([info["child"], info["grandchild"]], timeout=5) == []
+    assert not LocalCoordinatorLeader(env.store).status()["running"]
+    assert [r["state"] for r in rows(env.store)] == ["terminated"]
+
+
+@pytest.mark.skipif(IS_WINDOWS or "SIGHUP" not in HANGUP_SIGNALS, reason="POSIX signals")
+def test_serve_hangup_with_the_terminal_gone_still_exits_cleanly(env):
+    """After a hangup the output pipe is often closed. Only the summary may be lost."""
+    pidfile = env.tmp / "tree.json"
+    make_workflow(env, "prepare")
+    service = subprocess.Popen(
+        [sys.executable, "-c", SERVE_HARNESS, str(pidfile), TREE_CHILD, str(env.home)],
+        env=dict(os.environ, PYTHONPATH=SOURCE_ROOT, DBOUND_HOME=str(env.store.path.parent)),
+        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        start_new_session=True)
+    try:
+        info = wait_for_pidfile(pidfile)
+        env.tracked += [info["child"], info["grandchild"], service.pid]
+        service.stdout.close()
+        os.kill(service.pid, signal.SIGHUP)
+        _, errors = service.communicate(timeout=30)
+    finally:
+        if service.poll() is None:
+            service.kill()
+            service.wait(timeout=15)
+    assert service.returncode == 0, errors.decode()[-500:]
+    assert errors == b""
+    assert wait_dead([info["child"], info["grandchild"]], timeout=5) == []
+    assert not LocalCoordinatorLeader(env.store).status()["running"]
+
+
+def run_serve_in_process(monkeypatch, tmp_path, observe):
+    """Run the serve command in this thread with a fake coordinator run.
+
+    ``observe`` receives the stop event and runs inside the service loop.
+    """
+    from typer.testing import CliRunner
+    from decisionbound import background, cli
+    store = SQLiteRepository(tmp_path / "data" / "state.sqlite3")
+    home = tmp_path / "project"
+    home.mkdir()
+    init_project(home, store)
+    monkeypatch.setenv("DBOUND_HOME", str(store.path.parent))
+
+    def fake_run(self, *, stop_event=None, **_):
+        observe(stop_event)
+        return {"stopped": True}
+
+    monkeypatch.setattr(background.BackgroundCoordinator, "run", fake_run)
+    outcome = CliRunner().invoke(cli.app, ["workflow", "serve", "--path", str(home)])
+    assert outcome.exit_code == 0, outcome.output
+    return outcome
+
+
+@pytest.mark.skipif(IS_WINDOWS, reason="POSIX signals")
+def test_serve_installs_and_restores_every_stop_signal_handler(monkeypatch, tmp_path):
+    names = ["SIGINT", "SIGTERM"] + HANGUP_SIGNALS
+    before = {n: signal.getsignal(getattr(signal, n)) for n in names}
+    inside = {}
+
+    def observe(stop_event):
+        for n in names:
+            inside[n] = signal.getsignal(getattr(signal, n))
+        # Never raise a signal at this process unless a handler would catch it.
+        assert callable(inside["SIGHUP"]), "SIGHUP has no handler"
+        os.kill(os.getpid(), signal.SIGHUP)
+        assert stop_event.wait(5), "SIGHUP did not set the stop event"
+
+    run_serve_in_process(monkeypatch, tmp_path, observe)
+    for n in names:
+        assert inside[n] is not before[n], f"{n} handler was not installed"
+        assert signal.getsignal(getattr(signal, n)) is before[n], f"{n} handler was not restored"
+
+
+@pytest.mark.skipif(IS_WINDOWS, reason="POSIX signals")
+@pytest.mark.parametrize("name", HANGUP_SIGNALS)
+def test_serve_leaves_an_ignored_hangup_or_quit_ignored(monkeypatch, tmp_path, name):
+    """`nohup` sets SIGHUP to ignore on purpose. Serve must not undo that."""
+    number = getattr(signal, name)
+    previous = signal.signal(number, signal.SIG_IGN)
+    seen = {}
+    try:
+        run_serve_in_process(monkeypatch, tmp_path,
+                             lambda stop_event: seen.update(inside=signal.getsignal(number)))
+        assert seen["inside"] == signal.SIG_IGN
+        assert signal.getsignal(number) == signal.SIG_IGN
+    finally:
+        signal.signal(number, previous)
+
+
+def test_serve_runs_on_a_platform_without_hangup_and_quit_signals(monkeypatch, tmp_path):
+    for name in ("SIGHUP", "SIGQUIT"):
+        monkeypatch.delattr(signal, name, raising=False)
+    seen = {}
+
+    def observe(stop_event):
+        seen["term"] = signal.getsignal(signal.SIGTERM)
+
+    before = signal.getsignal(signal.SIGTERM)
+    run_serve_in_process(monkeypatch, tmp_path, observe)
+    assert seen["term"] is not before  # the handlers that exist everywhere are still installed
+    assert signal.getsignal(signal.SIGTERM) is before

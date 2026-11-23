@@ -1552,6 +1552,12 @@ crash the next coordinator kills what the old one left behind. On a host
 without strong containment every task is refused and blocked. The command
 stops with an error when the child cannot import the installed package.
 
+SIGINT, SIGTERM, SIGHUP (closed terminal) and SIGQUIT start the same orderly
+stop, which cancels contained workers and releases leadership. SIGHUP and
+SIGQUIT are handled only where the platform has them and only when the
+launcher did not set them to ignore, as nohup does. Previous handlers are
+restored on exit. If the terminal is gone at the end, only the summary is lost.
+
 ### `workflow_reap_orphans`
 
 ```python

@@ -16,6 +16,7 @@
 | The worker prints a receipt while it is being cancelled | The receipt is discarded. The task stays cancelled. |
 | The worker prints more than `max_output_bytes` | The tree is killed and the task is quarantined as `invalid_receipt`. |
 | The coordinator loses leadership | Workers are cancelled at the next tick. |
+| The coordinator gets `SIGTERM`, `SIGINT`, `SIGHUP` or `SIGQUIT` | New dispatch stops, workers are cancelled after the stop grace and leadership is released. (`SIGHUP` and `SIGQUIT` exist on POSIX only.) |
 | The coordinator is killed with `SIGKILL` | Workers keep running until the next coordinator starts. It reaps them before it dispatches anything. |
 | Termination cannot be proven | The task is quarantined as `containment_failed` and never retried, even for read-only kinds. |
 | A `code` task on a host with only weak containment | The task is refused before anything is spawned. |

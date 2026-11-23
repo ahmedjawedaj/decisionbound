@@ -721,6 +721,12 @@ def workflow_serve(
     crash the next coordinator kills what the old one left behind. On a host
     without strong containment every task is refused and blocked. The command
     stops with an error when the child cannot import the installed package.
+
+    SIGINT, SIGTERM, SIGHUP (closed terminal) and SIGQUIT start the same orderly
+    stop, which cancels contained workers and releases leadership. SIGHUP and
+    SIGQUIT are handled only where the platform has them and only when the
+    launcher did not set them to ignore, as nohup does. Previous handlers are
+    restored on exit. If the terminal is gone at the end, only the summary is lost.
     """
     import signal
     import threading
@@ -736,7 +742,15 @@ def workflow_serve(
         stop.set()
 
     if threading.current_thread() is threading.main_thread():
-        for sig in (signal.SIGINT, signal.SIGTERM):
+        stop_signals = [signal.SIGINT, signal.SIGTERM]
+        # Closing the terminal sends SIGHUP and Ctrl-backslash sends SIGQUIT. Windows has
+        # neither. A launcher such as nohup may have set one to ignore on purpose, so that
+        # choice is kept and only a signal that would still kill the process is handled.
+        for name in ('SIGHUP', 'SIGQUIT'):
+            extra = getattr(signal, name, None)
+            if extra is not None and signal.getsignal(extra) != signal.SIG_IGN:
+                stop_signals.append(extra)
+        for sig in stop_signals:
             original_handlers[sig] = signal.getsignal(sig)
             signal.signal(sig, request_stop)
     try:
@@ -759,7 +773,13 @@ def workflow_serve(
             max_dispatch_per_workflow=1 if low_resource else 2)
         runner = BackgroundCoordinator(store, project_id=project.project_id,
                                        settings=settings, workers=workers)
-        _print(runner.run(stop_event=stop, max_seconds=max_seconds, once=once))
+        summary = runner.run(stop_event=stop, max_seconds=max_seconds, once=once)
+        try:
+            _print(summary)
+        except OSError:
+            # After a hangup the terminal or pipe is often gone. The stop already
+            # finished, so lose only the summary.
+            pass
     except (CoordinatorConflict, ResourceBudgetExceeded) as exc:
         # Do not leak worker output or process secrets into CLI errors.
         typer.echo(f'Coordinator stopped: {type(exc).__name__}', err=True)
