@@ -756,6 +756,10 @@ repository_readonly_tools(root: Path, max_file_bytes: int = 512000) -> ToolRegis
 
 Create safe local file inspection/search tools for a single project root.
 
+Both tools refuse excluded directories and hidden names, secret file names (see ``_SECRET_NAMES`` and
+``_SECRET_PATTERNS``), noncanonical names (a trailing dot or space, or a colon, in any part) and
+symlinks. Names are compared without regard to case. Only a fixed set of text suffixes is served.
+
 This is a bounded inspection utility, not a secure sandbox against code
 executing with the same operating-system permissions as the process.
 
@@ -1552,6 +1556,13 @@ crash the next coordinator kills what the old one left behind. On a host
 without strong containment every task is refused and blocked. The command
 stops with an error when the child cannot import the installed package.
 
+SIGINT, SIGTERM, SIGHUP (closed terminal) and SIGQUIT start the same orderly
+stop, which cancels contained workers and releases leadership. SIGHUP and
+SIGQUIT are handled only where the platform has them and only when the
+launcher did not set them to ignore, as nohup does. Previous handlers are
+restored on exit. If the output pipe or terminal is gone at the end, only the summary
+is lost. Any other print failure, such as a full disk, still fails the command.
+
 ### `workflow_reap_orphans`
 
 ```python
@@ -1869,6 +1880,13 @@ checkout's tracked files. Interrupted runs leave records for manual cleanup.
 ### `WorkspaceError`
 
 A project cannot be safely isolated or an owned worktree cannot be cleaned.
+
+### `GitCommandError`
+
+The Git executable was missing, timed out or exited with an error.
+
+This separates "Git could not answer" from "Git answered and the checkout
+is not acceptable". The message never carries paths or Git's stderr.
 
 ### `worktree_git_dir`
 
@@ -3381,8 +3399,13 @@ under an older leadership generation (the owner then lost its fence). A tree
 is killed only when the live process at the recorded pid has the recorded
 start token, so a recycled pid is never signalled. If the leader is gone but
 its group is still alive, ownership cannot be verified: the row is marked
-``unconfirmed``, nothing is killed, and the task is blocked. The journal
-remains the only authority over task state.
+``unconfirmed``, nothing is killed, and the task is blocked. The same holds
+for a live process under a row with no recorded start token, because the
+identity could not be read at spawn. A row that names this host process, a
+process id below 2 or (POSIX) a group that is not the process's own is never
+signalled and is marked ``identity_mismatch``. Rows are not authenticated.
+See ``site_docs/worker-containment.md``. The journal remains the only
+authority over task state.
 
 #### `OrphanReaper.reap`
 
@@ -3573,6 +3596,14 @@ vetoes; the host's canonical integrity checks remain mandatory.
 ### `ReviewUnavailable`
 
 The workflow has no safe, unambiguous coding artifact to review.
+
+### `ReviewGitUnavailable`
+
+Git could not confirm the source commit or patch scope, so review is refused.
+
+Raised when Git is missing, times out, exits with an error or the
+repository is unreadable. Approval and export fail closed on it. The
+message is fixed and never carries paths, Git stderr or environment text.
 
 ### `ReviewConflict`
 

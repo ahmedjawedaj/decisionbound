@@ -293,6 +293,7 @@
     "tests/integration/test_repair_sprint05.py",
     "tests/integration/test_repair_surfaces_sprint05.py",
     "tests/integration/test_review_browser_sprint08_optional.py",
+    "tests/integration/test_review_gate_git_failure.py",
     "tests/integration/test_review_gate_sprint08.py",
     "tests/integration/test_review_sprint07.py",
     "tests/integration/test_review_ui_offline_sprint08_optional.py",
@@ -341,10 +342,13 @@
     "tests/unit/test_profiles.py",
     "tests/unit/test_provider_adapters.py",
     "tests/unit/test_pypi_release.py",
+    "tests/unit/test_read_tool_protected_names.py",
+    "tests/unit/test_registry_row_trust.py",
     "tests/unit/test_require_executed.py",
     "tests/unit/test_storage_fair_lock.py",
     "tests/unit/test_transferbench_controlled_v1.py",
     "tests/unit/test_version_consistency.py",
+    "tests/unit/test_windows_job_name.py",
     "tests/unit/test_windows_reaper_job.py"
   ]
 }
