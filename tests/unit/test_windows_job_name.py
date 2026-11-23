@@ -59,7 +59,12 @@ def install(monkeypatch, *, create_result=77, create_error=None, stale_error=0):
         world.order.append("set_last_error")
         world.error = value
 
-    monkeypatch.setattr(ctypes, "WinDLL", lambda *a, **k: kernel, raising=False)
+    def win_dll(*args, **kwargs):
+        # Without use_last_error the per-thread error value is never captured, so ERROR_ALREADY_EXISTS is lost.
+        world.opened_with = kwargs
+        return kernel
+
+    monkeypatch.setattr(ctypes, "WinDLL", win_dll, raising=False)
     monkeypatch.setattr(ctypes, "get_last_error", lambda: world.error, raising=False)
     monkeypatch.setattr(ctypes, "set_last_error", set_last_error, raising=False)
     kernel.world = world
@@ -82,6 +87,12 @@ def test_create_clears_the_last_error_first_so_a_stale_error_does_not_decide(mon
     assert isinstance(job, C._WindowsJob), "a new object must be accepted even with an old error value"
     order = kernel.world.order
     assert order.index("set_last_error") < order.index(kernel.CreateJobObjectW)
+
+
+def test_the_library_is_opened_so_the_last_error_is_captured(monkeypatch):
+    kernel = install(monkeypatch)
+    C._WindowsJob.create(C.ResourceLimits(), NAME)
+    assert kernel.world.opened_with.get("use_last_error") is True
 
 
 def test_create_makes_a_non_inheritable_kill_on_close_job_for_a_new_name(monkeypatch):
