@@ -293,6 +293,7 @@
     "tests/integration/test_repair_sprint05.py",
     "tests/integration/test_repair_surfaces_sprint05.py",
     "tests/integration/test_review_browser_sprint08_optional.py",
+    "tests/integration/test_review_gate_git_failure.py",
     "tests/integration/test_review_gate_sprint08.py",
     "tests/integration/test_review_sprint07.py",
     "tests/integration/test_review_ui_offline_sprint08_optional.py",
