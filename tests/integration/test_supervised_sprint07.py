@@ -6,6 +6,7 @@ import re
 import subprocess
 
 import pytest
+from click import unstyle
 from typer.testing import CliRunner
 
 from decisionbound.cli import app
@@ -214,4 +215,4 @@ def test_cli_supervised_code_docker_mode_refuses_a_tag_in_strict_digest_mode_cle
                                       '--mode', 'docker', '--docker-image', 'python:3.12',
                                       '--allow-docker', '--approve-writes'])
     assert result.exit_code == 2 and isinstance(result.exception, SystemExit)
-    assert 'sha256 digest' in ' '.join(re.sub('[│╭╮╰╯─]', ' ', result.output).split())
+    assert 'sha256 digest' in ' '.join(re.sub('[│╭╮╰╯─]', ' ', unstyle(result.output)).split())
