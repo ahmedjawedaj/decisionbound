@@ -3352,8 +3352,13 @@ under an older leadership generation (the owner then lost its fence). A tree
 is killed only when the live process at the recorded pid has the recorded
 start token, so a recycled pid is never signalled. If the leader is gone but
 its group is still alive, ownership cannot be verified: the row is marked
-``unconfirmed``, nothing is killed, and the task is blocked. The journal
-remains the only authority over task state.
+``unconfirmed``, nothing is killed, and the task is blocked. The same holds
+for a live process under a row with no recorded start token, because the
+identity could not be read at spawn. A row that names this host process, a
+process id below 2 or (POSIX) a group that is not the process's own is never
+signalled and is marked ``identity_mismatch``. Rows are not authenticated.
+See ``site_docs/worker-containment.md``. The journal remains the only
+authority over task state.
 
 #### `OrphanReaper.reap`
 

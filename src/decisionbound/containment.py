@@ -43,7 +43,10 @@ _STRONG_LEVELS = frozenset({"posix_session", "windows_job"})
 _LIMIT_NAMES = ("max_cpu_seconds", "max_memory_mib", "max_open_files", "max_processes")
 _CONFIRM_SECONDS = 5.0
 _JOB_NAME_PREFIX = "Local\\dbound-"
-_CONTAINMENT_ID = re.compile(r"[A-Za-z0-9_]{1,64}")
+# The one id shape the registry issues: "cp_" plus a random uuid4 in hex. A job object name is
+# built only from this shape, so it always carries 122 random bits from the operating system.
+_CONTAINMENT_ID = re.compile(r"cp_[0-9a-f]{32}")
+_ERROR_ALREADY_EXISTS = 183
 _POLL_SECONDS = 0.02
 
 
@@ -378,7 +381,14 @@ def probe_capabilities() -> ContainmentCapabilities:
 
 
 def _job_name(containment_id: str) -> str:
-    """Name of the job object for one contained worker, in the session-local namespace."""
+    """Name of the job object for one contained worker, in the session-local namespace.
+
+    The name is the prefix plus the registry's random containment id, which is what the
+    orphan reaper looks up later. A name another process could guess in advance can be
+    created first by that process, so any other id shape raises ``ValueError``.
+    """
+    if not isinstance(containment_id, str) or _CONTAINMENT_ID.fullmatch(containment_id) is None:
+        raise ValueError("Containment id is not a registry id, so it cannot name a job object")
     return _JOB_NAME_PREFIX + containment_id
 
 
@@ -386,7 +396,8 @@ class _WindowsJob:
     """Windows job object with kill-on-close, created through ctypes.
 
     Written from the Win32 documentation. It could not be executed on the
-    Linux machine where it was authored.
+    Linux machine where it was authored, and the name and already-exists logic
+    below is covered by fake kernel32 tests only until the Windows CI jobs run.
     """
 
     def __init__(self, handle: Any, kernel: Any):
@@ -418,9 +429,19 @@ class _WindowsJob:
         kernel.CreateJobObjectW.restype = wintypes.HANDLE
         kernel.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
         kernel.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+        # No security attributes: the handle is not inheritable by child processes.
+        # CreateJobObjectW on an existing name succeeds and returns a handle to that object with
+        # ERROR_ALREADY_EXISTS, so the error is cleared first and read right after the call.
+        ctypes.set_last_error(0)
         handle = kernel.CreateJobObjectW(None, name)
+        error = ctypes.get_last_error()
         if not handle:
-            raise ctypes.WinError(ctypes.get_last_error())
+            raise ctypes.WinError(error)
+        if name is not None and error == _ERROR_ALREADY_EXISTS:
+            # Not ours: apply nothing to it and drop our reference. Fail closed.
+            kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+            kernel.CloseHandle(handle)
+            raise OSError(error, "Windows job object name already exists")
         info = ExtendedLimits()
         flags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
         if limits.max_processes:
@@ -547,7 +568,10 @@ class ContainedProcess:
         if not _IS_NT:
             return cls(subprocess.Popen(command, start_new_session=True, **pipes),
                        level="posix_session", job=None)
-        name = _job_name(containment_id or uuid.uuid4().hex)
+        try:
+            name = _job_name("cp_" + uuid.uuid4().hex if containment_id is None else containment_id)
+        except ValueError:
+            raise ContainmentFailure("Windows job object name needs a registry containment id") from None
         create_flags = 0x00000200 | 0x08000000  # CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW
         job: _WindowsJob | None
         try:
@@ -841,8 +865,13 @@ class OrphanReaper:
     is killed only when the live process at the recorded pid has the recorded
     start token, so a recycled pid is never signalled. If the leader is gone but
     its group is still alive, ownership cannot be verified: the row is marked
-    ``unconfirmed``, nothing is killed, and the task is blocked. The journal
-    remains the only authority over task state.
+    ``unconfirmed``, nothing is killed, and the task is blocked. The same holds
+    for a live process under a row with no recorded start token, because the
+    identity could not be read at spawn. A row that names this host process, a
+    process id below 2 or (POSIX) a group that is not the process's own is never
+    signalled and is marked ``identity_mismatch``. Rows are not authenticated.
+    See ``site_docs/worker-containment.md``. The journal remains the only
+    authority over task state.
     """
 
     def __init__(self, registry: ProcessRegistry, journal: WorkflowJournal, *,
@@ -931,9 +960,14 @@ class OrphanReaper:
         """Decide and carry out the action for one orphan row, then return its new state."""
         if row["pid"] is None:
             return "unconfirmed"  # crashed between intent and spawn record: cannot know
-        if not _IS_NT and (type(row["pid"]) is not int or type(row["pgid"]) is not int or row["pid"] <= 1 or
-                           row["pgid"] != row["pid"] or row["pid"] == os.getpid() or row["pgid"] == os.getpgrp()):
-            return "identity_mismatch"  # never signal a group we did not start; a stored row is not trusted
+        if (type(row["pid"]) is not int or row["pid"] <= 1 or row["pid"] == os.getpid() or
+                (not _IS_NT and (type(row["pgid"]) is not int or row["pgid"] != row["pid"] or
+                                 row["pgid"] == os.getpgrp()))):
+            return "identity_mismatch"  # never signal a pid or group we did not start, a stored row is not trusted
+        if not row["start_token"] and process_identity(row["pid"]) is not None:
+            # The identity was unreadable at spawn, so a live process here cannot be matched to this
+            # row. It may be the worker, so send no signal and block the task. This is not a mismatch.
+            return "unconfirmed"
         if _IS_NT:
             return self._examine_windows(row)
         live = process_identity(row["pid"])
