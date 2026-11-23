@@ -1862,6 +1862,13 @@ checkout's tracked files. Interrupted runs leave records for manual cleanup.
 
 A project cannot be safely isolated or an owned worktree cannot be cleaned.
 
+### `GitCommandError`
+
+The Git executable was missing, timed out or exited with an error.
+
+This separates "Git could not answer" from "Git answered and the checkout
+is not acceptable". The message never carries paths or Git's stderr.
+
 ### `worktree_git_dir`
 
 ```python
@@ -3540,6 +3547,14 @@ vetoes; the host's canonical integrity checks remain mandatory.
 ### `ReviewUnavailable`
 
 The workflow has no safe, unambiguous coding artifact to review.
+
+### `ReviewGitUnavailable`
+
+Git could not confirm the source commit or patch scope, so review is refused.
+
+Raised when Git is missing, times out, exits with an error or the
+repository is unreadable. Approval and export fail closed on it. The
+message is fixed and never carries paths, Git stderr or environment text.
 
 ### `ReviewConflict`
 

@@ -20,6 +20,14 @@ class WorkspaceError(RuntimeError):
     """A project cannot be safely isolated or an owned worktree cannot be cleaned."""
 
 
+class GitCommandError(WorkspaceError):
+    """The Git executable was missing, timed out or exited with an error.
+
+    This separates "Git could not answer" from "Git answered and the checkout
+    is not acceptable". The message never carries paths or Git's stderr.
+    """
+
+
 def _git_env() -> dict[str, str]:
     """Disable inherited Git/SSH configuration overrides during source checkout.
 
@@ -140,9 +148,9 @@ def _git(root: Path, *args: str, timeout: int = 30, git_dir: Path | None = None)
                                  *_line_ending_options(root, git_dir), *args],
                                 capture_output=True, text=True, timeout=timeout, env=env)
     except (OSError, subprocess.TimeoutExpired) as exc:
-        raise WorkspaceError('Git command unavailable or timed out') from exc
+        raise GitCommandError('Git command unavailable or timed out') from exc
     if result.returncode:
-        raise WorkspaceError(f'Git operation failed: {args[0]}')
+        raise GitCommandError(f'Git operation failed: {args[0]}')
     return result.stdout.rstrip('\r\n')
 
 
@@ -181,9 +189,12 @@ class GitWorktreeManager:
         actual = Path(_git(root, 'rev-parse', '--show-toplevel')).resolve(strict=True)
         if root != actual:
             raise WorkspaceError('Use the Git repository top-level directory')
-        filter_check = subprocess.run(['git', '-C', str(root), 'config', '--local', '--name-only',
-                                       '--get-regexp', r'^filter\.'], capture_output=True, text=True,
-                                       timeout=15, env=_git_env())
+        try:
+            filter_check = subprocess.run(['git', '-C', str(root), 'config', '--local', '--name-only',
+                                           '--get-regexp', r'^filter\.'], capture_output=True, text=True,
+                                           timeout=15, env=_git_env())
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise GitCommandError('Git command unavailable or timed out') from exc
         if filter_check.returncode not in (0, 1) or filter_check.stdout.strip():
             raise WorkspaceError('Configured Git filters are not supported in isolated checkout')
         status = _git(root, 'status', '--porcelain', '--untracked-files=normal')
