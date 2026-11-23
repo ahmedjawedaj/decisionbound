@@ -345,6 +345,7 @@
     "tests/unit/test_storage_fair_lock.py",
     "tests/unit/test_transferbench_controlled_v1.py",
     "tests/unit/test_version_consistency.py",
+    "tests/unit/test_windows_job_name.py",
     "tests/unit/test_windows_reaper_job.py"
   ]
 }
