@@ -16,7 +16,7 @@ DecisionBound does **not** consider a model's final message proof of user-task c
 |---|---|---|
 | Prompt-injected tool output | Returned as untrusted data; host tool allowlist enforced | `tests/unit/test_model_planner.py` |
 | Tool asks for write | Host refuses side-effecting tool even if model requested it | `tests/unit/test_core.py` |
-| Path traversal or symlink | Repository tools reject absolute/parent traversal, hidden and symlinked paths | `tests/security/` |
+| Path traversal or symlink | Repository tools reject absolute/parent traversal, hidden, secret-like, noncanonical and symlinked paths | `tests/security/`, `tests/unit/test_read_tool_protected_names.py` |
 | Missing credential / implicit network | Providers cannot run without `enabled=True` and env key | `tests/unit/test_provider_adapters.py` |
 | Ambiguous paid timeout | No request retry; reservation remains charged | `tests/unit/test_model_planner.py` |
 | Over-budget response | Stop without further provider/tool calls | `tests/unit/test_model_planner.py` |
