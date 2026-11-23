@@ -3147,6 +3147,19 @@ group (POSIX) or job object (Windows). Deadlines, cancellation, leadership loss
 and output floods end in a confirmed termination, or in an explicit
 ``ContainmentFailure`` that the journal turns into a blocked task.
 
+On POSIX, confirmed means the process group is empty and no descendant that the
+host saw outside the group is alive. The host watches the child's process tree
+while it runs and again before it kills it. A descendant seen outside the group
+is not killed, and the result is unconfirmed. A host that cannot list processes
+confirms nothing. A scan taken while the worker runs decides, so one failed scan
+followed by a good one does not block a task, but a scan taken after the leader
+exited cannot clear a failed one, since its children are already re-parented. Once the group is empty, a descendant
+that is still alive gets only a short grace before the result is unconfirmed. A
+descendant that left the group and was re-parented to init before the host looked
+is not visible, and neither is one born between two scans, so confirmed is not a
+proof of an empty tree. Legitimate daemonizing tools such as git fsmonitor,
+gpg-agent and ssh ControlMaster count as escapees and block the task.
+
 What this is not: a security sandbox. Descendants that call ``setsid`` or
 ``setpgid`` escape a POSIX group. Windows processes that break away from the job
 or start through WMI or a service escape the job. There is no filesystem,
@@ -3329,6 +3342,14 @@ POSIX sends SIGTERM to the group, waits up to ``grace_seconds`` for the
 group to empty, then SIGKILL. Windows kills the job immediately (there is
 no catchable signal), or falls back to ``taskkill /T /F``.
 
+#### `ContainedProcess.live_escapees`
+
+```python
+live_escapees() -> list[int]
+```
+
+Process ids of remembered descendants outside the group that still run.
+
 #### `ContainedProcess.close`
 
 ```python
@@ -3401,7 +3422,10 @@ start token, so a recycled pid is never signalled. If the leader is gone but
 its group is still alive, ownership cannot be verified: the row is marked
 ``unconfirmed``, nothing is killed, and the task is blocked. The same holds
 for a live process under a row with no recorded start token, because the
-identity could not be read at spawn. A row that names this host process, a
+identity could not be read at spawn. If the leader is alive and a descendant
+of it sits outside the group, the group is killed but that descendant is not,
+and the row is ``unconfirmed`` too. When the leader is already gone such a
+descendant cannot be seen at all. A row that names this host process, a
 process id below 2 or (POSIX) a group that is not the process's own is never
 signalled and is marked ``identity_mismatch``. Rows are not authenticated.
 See ``site_docs/worker-containment.md``. The journal remains the only
