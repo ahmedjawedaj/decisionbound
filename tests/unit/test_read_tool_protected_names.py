@@ -4,6 +4,9 @@ The tools are a bounded inspection policy, not a sandbox. These tests check the
 name policy only: a casefolded set of secret names, a few patterns, excluded
 directories matched without regard to case and noncanonical path parts.
 """
+import sys
+from pathlib import Path
+
 import pytest
 
 from decisionbound import agent_loop
@@ -80,7 +83,8 @@ def test_ordinary_names_stay_readable_and_searchable(tmp_path, name):
     make_tree(tmp_path, [name], body="body of " + name)
     tools = repository_readonly_tools(tmp_path)
     assert read(tools, name)["text"] == "body of " + name
-    assert [hit["file"] for hit in search(tools, "body of " + name)["results"]] == [name]
+    # Search reports the platform separator, so compare the path and not the spelling.
+    assert [Path(hit["file"]).as_posix() for hit in search(tools, "body of " + name)["results"]] == [name]
 
 
 # A colon starts a Windows alternate data stream, and Windows drops a trailing dot or space,
@@ -92,6 +96,14 @@ NONCANONICAL = [
 ]
 
 
+@pytest.mark.parametrize("name", NONCANONICAL)
+def test_noncanonical_names_are_refused_even_when_no_file_exists(tmp_path, name):
+    """The refusal is a name rule, so it holds on Windows where these files cannot be created."""
+    with pytest.raises(PermissionError):
+        read(repository_readonly_tools(tmp_path), name)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows cannot create files with these names")
 @pytest.mark.parametrize("name", NONCANONICAL)
 def test_noncanonical_names_are_refused_for_read_and_skipped_by_search(tmp_path, name):
     make_tree(tmp_path, [name, "plain_notes.md"])
