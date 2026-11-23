@@ -10,8 +10,9 @@ On POSIX, confirmed means the process group is empty and no descendant that the
 host saw outside the group is alive. The host watches the child's process tree
 while it runs and again before it kills it. A descendant seen outside the group
 is not killed, and the result is unconfirmed. A host that cannot list processes
-confirms nothing, and the last scan before the kill decides, so one failed scan
-followed by a good one does not block a task. Once the group is empty, a descendant
+confirms nothing. A scan taken while the worker runs decides, so one failed scan
+followed by a good one does not block a task, but a scan taken after the leader
+exited cannot clear a failed one, since its children are already re-parented. Once the group is empty, a descendant
 that is still alive gets only a short grace before the result is unconfirmed. A
 descendant that left the group and was re-parented to init before the host looked
 is not visible, and neither is one born between two scans, so confirmed is not a
@@ -743,7 +744,7 @@ class ContainedProcess:
         if _IS_NT:
             self._windows_kill()
         else:
-            self._watch_tree()  # the leader is a zombie here, so its children still link to it
+            self._watch_tree()  # finds only escapees below live group members, and cannot clear an unknown tree
             _signal_group(self.pgid, signal.SIGKILL)
         self._reap_and_confirm()
         return self._returncode
@@ -780,14 +781,18 @@ class ContainedProcess:
     def _watch_tree(self) -> None:
         """Remember live descendants outside the group, which a group kill cannot reach.
 
-        A failed scan marks the tree unknown and a later successful scan clears
-        that, so the last scan before the kill decides.
+        A failed scan marks the tree unknown. Only a scan taken while the leader is alive
+        can clear that. Once the leader has exited its children are already re-parented
+        to init, so a later scan cannot see an escapee that left through the leader and
+        must never vouch for the tree.
         """
+        leader_alive = not self._leader_exited()
         found = _escaped_descendants(self.pid, self.pgid)
         if found is None:
             self._tree_unknown = True
             return
-        self._tree_unknown = False
+        if leader_alive and not self._leader_exited():
+            self._tree_unknown = False
         for item in found:
             self._escaped[item.pid] = item
 

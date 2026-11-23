@@ -1079,6 +1079,35 @@ def test_a_failed_scan_at_termination_time_stays_unconfirmed_after_earlier_good_
 
 
 @pytest.mark.skipif(IS_WINDOWS, reason="POSIX sessions: setsid has no Windows equivalent")
+def test_a_scan_after_the_leader_exits_cannot_vouch_for_a_tree_it_could_not_see(env, monkeypatch):
+    """Every scan fails while the worker runs. The children of an exited leader are re-parented to init,
+    so one good scan afterwards sees no escapee and must not turn the run into a confirmed kill."""
+    real, state = C._process_table, {"fail": True}
+    monkeypatch.setattr(C, "_process_table", lambda: None if state["fail"] else real())
+    monkeypatch.setattr(C, "_CONFIRM_SECONDS", 1.0)
+    pidfile = env.tmp / "escapee.pid"
+    script = ("import subprocess, sys, time; "
+              "p = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(600)'], start_new_session=True, "
+              "stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); "
+              "open(sys.argv[1], 'w').write(str(p.pid)); time.sleep(0.5)")
+    proc = C.ContainedProcess.spawn([sys.executable, "-c", script, str(pidfile)], env={"PATH": os.environ.get("PATH", "")})
+    env.tracked.append(proc.pid)
+    try:
+        end = time.monotonic() + 10
+        while proc.returncode is None and time.monotonic() < end:
+            if proc._leader_exited():
+                state["fail"] = False
+            proc.poll()
+            time.sleep(0.01)
+        assert proc.returncode is not None
+        assert proc.confirmed is False, "a live escapee was reported as a proven kill"
+    finally:
+        if pidfile.exists():
+            env.tracked.append(int(pidfile.read_text()))
+        proc.close()
+
+
+@pytest.mark.skipif(IS_WINDOWS, reason="POSIX sessions: setsid has no Windows equivalent")
 def test_poll_returns_well_within_the_confirm_window_when_an_escapee_is_alive(env):
     script = ("import subprocess, sys, time; subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(600)'], "
               "start_new_session=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); "

@@ -3100,8 +3100,9 @@ On POSIX, confirmed means the process group is empty and no descendant that the
 host saw outside the group is alive. The host watches the child's process tree
 while it runs and again before it kills it. A descendant seen outside the group
 is not killed, and the result is unconfirmed. A host that cannot list processes
-confirms nothing, and the last scan before the kill decides, so one failed scan
-followed by a good one does not block a task. Once the group is empty, a descendant
+confirms nothing. A scan taken while the worker runs decides, so one failed scan
+followed by a good one does not block a task, but a scan taken after the leader
+exited cannot clear a failed one, since its children are already re-parented. Once the group is empty, a descendant
 that is still alive gets only a short grace before the result is unconfirmed. A
 descendant that left the group and was re-parented to init before the host looked
 is not visible, and neither is one born between two scans, so confirmed is not a
