@@ -1556,7 +1556,8 @@ SIGINT, SIGTERM, SIGHUP (closed terminal) and SIGQUIT start the same orderly
 stop, which cancels contained workers and releases leadership. SIGHUP and
 SIGQUIT are handled only where the platform has them and only when the
 launcher did not set them to ignore, as nohup does. Previous handlers are
-restored on exit. If the terminal is gone at the end, only the summary is lost.
+restored on exit. If the output pipe or terminal is gone at the end, only the summary
+is lost. Any other print failure, such as a full disk, still fails the command.
 
 ### `workflow_reap_orphans`
 

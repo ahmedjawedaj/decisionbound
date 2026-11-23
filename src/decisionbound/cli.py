@@ -5,6 +5,9 @@ Every command can operate without an LLM account or third-party credentials.
 """
 from __future__ import annotations
 import json
+import errno
+import os
+import sys
 from pathlib import Path
 from dataclasses import asdict
 import typer
@@ -41,6 +44,44 @@ app.add_typer(release_cli, name="release")
 def _print(value: object) -> None:
     """Write stable machine-readable JSON for scripts and other clients."""
     typer.echo(json.dumps(value, sort_keys=True, indent=2, default=str))
+
+
+def _discard_stdout() -> None:
+    """Point standard output at the null device after a write to it failed.
+
+    Python flushes standard output again when the interpreter exits. If the pipe or
+    terminal is gone and unwritten text is still buffered, that flush fails and the
+    exit status becomes 120. Redirecting the descriptor makes the later flush succeed.
+    """
+    try:
+        descriptor = sys.stdout.fileno()
+        null = os.open(os.devnull, os.O_WRONLY)
+        try:
+            os.dup2(null, descriptor)
+        finally:
+            os.close(null)
+    except (OSError, ValueError, AttributeError):
+        pass
+
+
+_OUTPUT_GONE = frozenset({errno.EPIPE, errno.EIO, errno.EBADF})
+
+
+def _print_final_summary(value: object) -> None:
+    """Print the stop summary, and lose only the summary when the output is gone.
+
+    A broken pipe, a vanished terminal or a closed stream drops the summary. Any other
+    write failure, such as a full disk, still fails so the caller can see it.
+    """
+    try:
+        _print(value)
+        sys.stdout.flush()
+    except ValueError:
+        _discard_stdout()
+    except OSError as exc:
+        if exc.errno not in _OUTPUT_GONE:
+            raise
+        _discard_stdout()
 
 
 @app.command("setup")
@@ -726,7 +767,8 @@ def workflow_serve(
     stop, which cancels contained workers and releases leadership. SIGHUP and
     SIGQUIT are handled only where the platform has them and only when the
     launcher did not set them to ignore, as nohup does. Previous handlers are
-    restored on exit. If the terminal is gone at the end, only the summary is lost.
+    restored on exit. If the output pipe or terminal is gone at the end, only the summary
+    is lost. Any other print failure, such as a full disk, still fails the command.
     """
     import signal
     import threading
@@ -741,19 +783,19 @@ def workflow_serve(
         """Request graceful drain; verified task ownership stays host-fenced."""
         stop.set()
 
-    if threading.current_thread() is threading.main_thread():
-        stop_signals = [signal.SIGINT, signal.SIGTERM]
-        # Closing the terminal sends SIGHUP and Ctrl-backslash sends SIGQUIT. Windows has
-        # neither. A launcher such as nohup may have set one to ignore on purpose, so that
-        # choice is kept and only a signal that would still kill the process is handled.
-        for name in ('SIGHUP', 'SIGQUIT'):
-            extra = getattr(signal, name, None)
-            if extra is not None and signal.getsignal(extra) != signal.SIG_IGN:
-                stop_signals.append(extra)
-        for sig in stop_signals:
-            original_handlers[sig] = signal.getsignal(sig)
-            signal.signal(sig, request_stop)
     try:
+        if threading.current_thread() is threading.main_thread():
+            stop_signals = [signal.SIGINT, signal.SIGTERM]
+            # Closing the terminal sends SIGHUP and Ctrl-backslash sends SIGQUIT. Windows has
+            # neither. A launcher such as nohup may have set one to ignore on purpose, so that
+            # choice is kept and only a signal that would still kill the process is handled.
+            for name in ('SIGHUP', 'SIGQUIT'):
+                extra = getattr(signal, name, None)
+                if extra is not None and signal.getsignal(extra) != signal.SIG_IGN:
+                    stop_signals.append(extra)
+            for sig in stop_signals:
+                original_handlers[sig] = signal.getsignal(sig)
+                signal.signal(sig, request_stop)
         if contained:
             from .containment import ProcessRegistry
             from .worker_child import child_can_import, contained_preparation_worker
@@ -774,19 +816,17 @@ def workflow_serve(
         runner = BackgroundCoordinator(store, project_id=project.project_id,
                                        settings=settings, workers=workers)
         summary = runner.run(stop_event=stop, max_seconds=max_seconds, once=once)
-        try:
-            _print(summary)
-        except OSError:
-            # After a hangup the terminal or pipe is often gone. The stop already
-            # finished, so lose only the summary.
-            pass
+        # After a hangup the terminal or pipe is often gone. The stop already finished,
+        # so lose only the summary.
+        _print_final_summary(summary)
     except (CoordinatorConflict, ResourceBudgetExceeded) as exc:
         # Do not leak worker output or process secrets into CLI errors.
         typer.echo(f'Coordinator stopped: {type(exc).__name__}', err=True)
         raise typer.Exit(2) from exc
     finally:
         for sig, original in original_handlers.items():
-            signal.signal(sig, original)
+            # getsignal returns None for a handler installed from C. Fall back to the default.
+            signal.signal(sig, signal.SIG_DFL if original is None else original)
 
 
 @workflow_cli.command("reap-orphans")
