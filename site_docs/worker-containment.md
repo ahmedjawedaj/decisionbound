@@ -113,6 +113,8 @@ When a coordinator acquires leadership it runs the reaper before its first dispa
 |---|---|---|
 | Live process, same start token | Kill the tree | `terminated` |
 | Live process, different start token | Send no signal | `identity_mismatch` |
+| Live process, row has no start token (identity unreadable at spawn) | Send no signal, block the task | `unconfirmed` |
+| Row names this host process or a process id below 2 (any OS) | Send no signal | `identity_mismatch` |
 | Leader gone, group empty | Nothing to do | `gone` |
 | Leader gone, group still alive (POSIX) | Send no signal, block the task | `unconfirmed` |
 | Crash between intent and spawn | Block the task | `unconfirmed` |
@@ -139,6 +141,7 @@ The reaper never changes task state except to block an unconfirmed task. The jou
 - A `WorkflowSupervisor` used without the coordinator never reaps orphans. Call `dbound workflow reap-orphans` or run the coordinator.
 - On hosts without `ps`-grade start times (the macOS `ps` fallback) the identity token has one second resolution.
 - The registry table is never pruned.
+- Registry rows are not authenticated. The database file is created with owner-only permissions, and the reaper only signals a process whose start token, process id and group agree with the row (a row whose process id is not a plain integer is refused on both platforms, and the owner-only permission is a POSIX rule only), but a writer of the file who can read another process's start token can still choose which of that user's own processes the reaper ends. A per-row signature would not change this while the key lives in the same user's state directory, and the journal that decides task state is equally unsigned.
 - Cancelling a worker discards its receipt. A cancel induced `WorkerCancelled` does not emit a `late_result_rejected` event.
 - A supervisor error cancels running workers, which are then killed. The lease must exceed the SQLite busy timeout, otherwise a blocked heartbeat can cost a worker its lease.
 - A host that ignores `SIGCHLD` is unsupported.
