@@ -79,7 +79,7 @@ and hashes of scripted patches. A reused idempotency key with incompatible
 configuration fails closed. A custom provider factory must use a new key when
 its external model or prompt configuration changes.
 
-The built-in Docker runner uses a network-disabled, privilege-dropped, non-root, resource-bounded container with a read-only container filesystem and a single writable isolated Git worktree bind mount. Docker still requires a trusted local daemon, reviewed image provenance and proper host isolation; this project has **not** independently certified container escape resistance. For release, pin images by digest and record the reviewed digest in the test manifest.
+The built-in Docker runner uses a network-disabled, privilege-dropped, non-root, resource-bounded container with a read-only container filesystem and a single writable isolated Git worktree bind mount. Docker still requires a trusted local daemon, reviewed image provenance and proper host isolation; this project has **not** independently certified container escape resistance. For release, pin images by digest and record the reviewed digest in the test manifest. A tag is mutable, so a receipt for a tag-only image shows an empty `image_digest` and does not say which content ran. `DBOUND_REQUIRE_IMAGE_DIGEST=1` makes the runner refuse such an image. The runner also pins the `docker` context to `default` and records the daemon in `daemon_endpoint`.
 
 Expected result *if real integration checks pass*: all three stage states `verified`, workflow state `verified_stages`, and `task_completed: false`. Docker is unavailable in the local authoring sandbox, so this is a connected-environment acceptance criterion, not a claimed local result.
 
