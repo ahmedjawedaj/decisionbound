@@ -841,8 +841,13 @@ class OrphanReaper:
     is killed only when the live process at the recorded pid has the recorded
     start token, so a recycled pid is never signalled. If the leader is gone but
     its group is still alive, ownership cannot be verified: the row is marked
-    ``unconfirmed``, nothing is killed, and the task is blocked. The journal
-    remains the only authority over task state.
+    ``unconfirmed``, nothing is killed, and the task is blocked. The same holds
+    for a live process under a row with no recorded start token, because the
+    identity could not be read at spawn. A row that names this host process, a
+    process id below 2 or (POSIX) a group that is not the process's own is never
+    signalled and is marked ``identity_mismatch``. Rows are not authenticated.
+    See ``site_docs/worker-containment.md``. The journal remains the only
+    authority over task state.
     """
 
     def __init__(self, registry: ProcessRegistry, journal: WorkflowJournal, *,
@@ -931,9 +936,14 @@ class OrphanReaper:
         """Decide and carry out the action for one orphan row, then return its new state."""
         if row["pid"] is None:
             return "unconfirmed"  # crashed between intent and spawn record: cannot know
-        if not _IS_NT and (type(row["pid"]) is not int or type(row["pgid"]) is not int or row["pid"] <= 1 or
-                           row["pgid"] != row["pid"] or row["pid"] == os.getpid() or row["pgid"] == os.getpgrp()):
-            return "identity_mismatch"  # never signal a group we did not start; a stored row is not trusted
+        if (type(row["pid"]) is not int or row["pid"] <= 1 or row["pid"] == os.getpid() or
+                (not _IS_NT and (type(row["pgid"]) is not int or row["pgid"] != row["pid"] or
+                                 row["pgid"] == os.getpgrp()))):
+            return "identity_mismatch"  # never signal a pid or group we did not start, a stored row is not trusted
+        if not row["start_token"] and process_identity(row["pid"]) is not None:
+            # The identity was unreadable at spawn, so a live process here cannot be matched to this
+            # row. It may be the worker, so send no signal and block the task. This is not a mismatch.
+            return "unconfirmed"
         if _IS_NT:
             return self._examine_windows(row)
         live = process_identity(row["pid"])
