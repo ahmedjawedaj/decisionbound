@@ -240,7 +240,7 @@ def test_open_existing_raises_for_any_other_failure(monkeypatch):
 @pytest.mark.skipif(os.name != "nt", reason="needs real Windows job objects (windows-latest in CI)")
 def test_open_job_object_on_a_real_windows_host():
     """UNVERIFIED until a windows-latest run reports it: create, reopen by name, kill, reopen."""
-    name = C._job_name("cp_realwindowscheck" + os.urandom(4).hex())
+    name = C._job_name("cp_" + os.urandom(16).hex())
     created = C._WindowsJob.create(C.ResourceLimits(), name)
     try:
         reopened = C._WindowsJob.open_existing(name)
