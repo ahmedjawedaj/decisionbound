@@ -195,7 +195,9 @@ class GitWorktreeManager:
                                            timeout=15, env=_git_env())
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise GitCommandError('Git command unavailable or timed out') from exc
-        if filter_check.returncode not in (0, 1) or filter_check.stdout.strip():
+        if filter_check.returncode not in (0, 1):
+            raise GitCommandError('Git operation failed: config')
+        if filter_check.stdout.strip():
             raise WorkspaceError('Configured Git filters are not supported in isolated checkout')
         status = _git(root, 'status', '--porcelain', '--untracked-files=normal')
         if any(line and not (line.startswith('?? ') and line[3:] in ('.decisionbound/', '.decisionbound'))

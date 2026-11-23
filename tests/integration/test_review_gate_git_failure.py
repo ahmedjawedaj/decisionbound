@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 
 import pytest
 from fastapi.testclient import TestClient
@@ -16,6 +17,9 @@ from tests.integration.test_review_gate_sprint08 import completed  # noqa: F401
 
 REFUSAL = "Git state could not be verified, so the review was refused"
 LEAK_MARKER = "STDERR-LEAK-MARKER"
+SHIM_KINDS = ("mode-check-exit", "filter-check-exit", "filter-check-timeout", "status-exit")
+needs_posix_shell = pytest.mark.skipif(
+    sys.platform == "win32", reason="the Git shim is a POSIX shell script and Windows runs the real git.exe")
 
 
 def _install_shim(tmp_path, monkeypatch, fail_on: str, how: str) -> None:
@@ -45,6 +49,8 @@ def _install_shim(tmp_path, monkeypatch, fail_on: str, how: str) -> None:
 def _break_git(kind: str, tmp_path, monkeypatch, root) -> None:
     if kind == "mode-check-exit":
         _install_shim(tmp_path, monkeypatch, "ls-files", "exit")
+    elif kind == "filter-check-exit":
+        _install_shim(tmp_path, monkeypatch, "--get-regexp", "exit")
     elif kind == "filter-check-timeout":
         _install_shim(tmp_path, monkeypatch, "--name-only", "hang")
     elif kind == "status-exit":
@@ -57,7 +63,9 @@ def _break_git(kind: str, tmp_path, monkeypatch, root) -> None:
         raise AssertionError(kind)
 
 
-KINDS = ["mode-check-exit", "filter-check-timeout", "status-exit", "git-missing", "corrupt-index"]
+KINDS = [pytest.param(kind, marks=needs_posix_shell) if kind in SHIM_KINDS else kind
+         for kind in ("mode-check-exit", "filter-check-exit", "filter-check-timeout", "status-exit",
+                      "git-missing", "corrupt-index")]
 
 
 def _assert_clean(text: str, tmp_path) -> None:
@@ -123,6 +131,7 @@ def test_http_review_routes_return_stable_409_without_leaks(completed, tmp_path,
     assert ReviewGate(store, state).decision(wid)["decision"] == "pending"
 
 
+@needs_posix_shell
 def test_mcp_review_metadata_refuses_with_bounded_error(completed, tmp_path, monkeypatch):  # noqa: F811
     store, _, root, wid = completed
     server = create_mcp_server(root, store, FakeMCPServer)
@@ -154,6 +163,7 @@ def test_unsafe_tracked_mode_is_a_scope_refusal_not_a_git_failure(completed, mon
     assert not isinstance(caught.value, ReviewGitUnavailable)
 
 
+@needs_posix_shell
 def test_source_check_reports_a_hung_filter_lookup_as_a_typed_git_error(completed, tmp_path, monkeypatch):  # noqa: F811
     from decisionbound.code_workspace import GitCommandError, GitWorktreeManager
     _, _, root, _ = completed
@@ -161,3 +171,26 @@ def test_source_check_reports_a_hung_filter_lookup_as_a_typed_git_error(complete
     with pytest.raises(GitCommandError) as caught:
         GitWorktreeManager.check_source(root)
     _assert_clean(str(caught.value), tmp_path)
+
+
+@needs_posix_shell
+def test_source_check_reports_a_failed_filter_lookup_as_a_typed_git_error(completed, tmp_path, monkeypatch):  # noqa: F811
+    from decisionbound.code_workspace import GitCommandError, GitWorktreeManager
+    _, _, root, _ = completed
+    _break_git("filter-check-exit", tmp_path, monkeypatch, root)
+    with pytest.raises(GitCommandError) as caught:
+        GitWorktreeManager.check_source(root)
+    _assert_clean(str(caught.value), tmp_path)
+
+
+@needs_posix_shell
+def test_revoke_does_not_need_git_and_still_works_when_git_is_down(completed, tmp_path, monkeypatch):  # noqa: F811
+    store, state, root, wid = completed
+    gate = ReviewGate(store, state)
+    fingerprint = gate.snapshot(wid)["fingerprint"]
+    gate.decide(wid, expected_fingerprint=fingerprint, expected_revision=0,
+                action="approve_export", acknowledge_unverified=True)
+    _break_git("status-exit", tmp_path, monkeypatch, root)
+    revoked = gate.decide(wid, expected_fingerprint=fingerprint, expected_revision=1, action="revoke")
+    assert revoked["decision"] == "revoke"
+    assert [event["event"] for event in gate.history(wid)] == ["approve_export", "revoke"]
