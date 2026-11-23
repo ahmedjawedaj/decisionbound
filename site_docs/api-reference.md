@@ -756,6 +756,10 @@ repository_readonly_tools(root: Path, max_file_bytes: int = 512000) -> ToolRegis
 
 Create safe local file inspection/search tools for a single project root.
 
+Both tools refuse excluded directories and hidden names, secret file names (see ``_SECRET_NAMES`` and
+``_SECRET_PATTERNS``), noncanonical names (a trailing dot or space, or a colon, in any part) and
+symlinks. Names are compared without regard to case. Only a fixed set of text suffixes is served.
+
 This is a bounded inspection utility, not a secure sandbox against code
 executing with the same operating-system permissions as the process.
 
