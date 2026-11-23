@@ -43,6 +43,18 @@ def _print(value: object) -> None:
     typer.echo(json.dumps(value, sort_keys=True, indent=2, default=str))
 
 
+def _docker_runner(image: str):
+    """Build the Docker test runner, turning a refused configuration into a clean usage error.
+
+    The runner refuses an image that is not pinned by digest when DBOUND_REQUIRE_IMAGE_DIGEST=1.
+    """
+    from .code_sandbox import DockerTestRunner
+    try:
+        return DockerTestRunner(image)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc), param_hint='--image') from None
+
+
 @app.command("setup")
 def setup_user(
     profile: str | None = typer.Option(None, "--profile", help="Built-in or custom end-user profile"),
@@ -341,7 +353,6 @@ def code_apply(task: str, patch_file: Path = typer.Option(..., "--patch-file"),
     """
     import shlex
     from .code_execution import PatchFileProposer, run_coding_task
-    from .code_sandbox import DockerTestRunner
     from .settings import state_dir
     if not approve_writes or not allow_docker:
         raise typer.BadParameter('Both --approve-writes and --allow-docker are mandatory')
@@ -353,7 +364,7 @@ def code_apply(task: str, patch_file: Path = typer.Option(..., "--patch-file"),
     patch = patch_file.read_text(encoding='utf-8')
     result = run_coding_task(project_path=path, state_root=state_dir(), repository=repository(),
                              task=task, proposer=PatchFileProposer(patch),
-                             runner=DockerTestRunner(image), test_commands=commands,
+                             runner=_docker_runner(image), test_commands=commands,
                              approved_writes=True, timeout_seconds=timeout)
     _print(result.to_dict())
 
@@ -380,7 +391,6 @@ def code_propose(task: str, target: list[str] = typer.Option([], "--target"),
     """
     import shlex
     from .code_execution import run_coding_task
-    from .code_sandbox import DockerTestRunner
     from .code_provider import ModelPatchProposer
     from .model_planner import ModelLimits, Pricing
     from .providers import AnthropicJSONTransport, OpenAICompatibleJSONTransport
@@ -406,7 +416,7 @@ def code_propose(task: str, target: list[str] = typer.Option([], "--target"),
                     context=approved_context)
     commands = tuple(tuple(shlex.split(x)) for x in test_cmd)
     result = run_coding_task(project_path=path, state_root=state_dir(), repository=store,
-                             task=task, proposer=proposer, runner=DockerTestRunner(image),
+                             task=task, proposer=proposer, runner=_docker_runner(image),
                              test_commands=commands, approved_writes=True,
                              source_targets=tuple(target))
     value = result.to_dict()
@@ -521,7 +531,6 @@ def code_repair_provider(task: str, contract: Path = typer.Option(..., '--contra
     choose a shell command or authorize any writes.
     """
     from .code_repair import RepairLimits, ModelRepairFactory, run_repair_session
-    from .code_sandbox import DockerTestRunner
     from .model_planner import Pricing
     from .providers import OpenAICompatibleJSONTransport, AnthropicJSONTransport
     from .settings import state_dir
@@ -537,7 +546,7 @@ def code_repair_provider(task: str, contract: Path = typer.Option(..., '--contra
     factory = ModelRepairFactory(transport, Pricing(input_price, output_price))
     result = run_repair_session(idempotency_key=key, project_path=path,
         state_root=state_dir(), repository=repository(), task=task, contract=approved,
-        proposer_factory=factory, runner=DockerTestRunner(image),
+        proposer_factory=factory, runner=_docker_runner(image),
         limits=RepairLimits(max_attempts=max_attempts, max_model_cost_usd=max_cost),
         source_targets=tuple(source_target), approved_writes=True, resume=resume)
     _print(result.to_dict())
@@ -562,7 +571,6 @@ def code_native_propose(task: str, contract: Path = typer.Option(..., '--contrac
     real installed hosts until user-run connected tests are complete.
     """
     from .code_native import CodexCLIPatchProposer, ClaudeCLIPatchProposer
-    from .code_sandbox import DockerTestRunner
     from .code_execution import run_coding_task
     from .settings import state_dir
     if not all((allow_native, allow_docker, approve_writes)):
@@ -577,7 +585,7 @@ def code_native_propose(task: str, contract: Path = typer.Option(..., '--contrac
         raise typer.BadParameter('Harness must be codex or claude')
     approved = _load_contract_file(contract)
     outcome = run_coding_task(project_path=path, state_root=state_dir(), repository=repository(),
-        task=task, proposer=proposer, runner=DockerTestRunner(image),
+        task=task, proposer=proposer, runner=_docker_runner(image),
         test_commands=approved.test_commands, contract=approved,
         source_targets=tuple(source_target), approved_writes=True)
     _print(outcome.to_dict())
@@ -820,7 +828,7 @@ def workflow_supervised_code(
     """
     from .supervised_coding import SupervisedCodingOrchestrator, SupervisedCodingRequest
     from .code_repair import ScriptedRepairFactory, RepairLimits
-    from .code_sandbox import DockerTestRunner, ScriptedTestRunner
+    from .code_sandbox import ScriptedTestRunner
     from .settings import state_dir
     if approve_writes is not True:
         raise typer.BadParameter('Explicit --approve-writes is required')
@@ -836,7 +844,7 @@ def workflow_supervised_code(
         raise typer.BadParameter('Docker flags are invalid in mock mode')
     approved = _load_contract_file(contract)
     factory = ScriptedRepairFactory(tuple(f.read_text(encoding='utf-8') for f in patch_file))
-    runner = DockerTestRunner(docker_image) if mode == 'docker' else ScriptedTestRunner([0] * 5 * len(patch_file))
+    runner = _docker_runner(docker_image) if mode == 'docker' else ScriptedTestRunner([0] * 5 * len(patch_file))
     request = SupervisedCodingRequest(task, approved, tuple(source_target),
               limits=RepairLimits(max_attempts=len(patch_file), max_model_cost_usd=0),
               require_red_test=require_red_test)

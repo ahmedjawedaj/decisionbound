@@ -67,7 +67,9 @@ class TestOutcome:
         digest that reference pins, or empty when it is a mutable tag. ``daemon_endpoint`` is the
         ``unix://`` daemon the container CLI was told to use, or ``default`` for its own default.
         The three keys are left out when empty, so receipts that carry none serialize and hash
-        exactly as before.
+        exactly as before. The three fields are in the receipt hash and in the CLI JSON output, but
+        the persisted ledger events carry only the hash. ``daemon_endpoint`` is the configured intent
+        and not the observed daemon.
         """
         value = asdict(self)
         value["command"] = list(self.command)

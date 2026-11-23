@@ -196,12 +196,18 @@ class DockerTestRunner(IsolatedTestRunner):
     ``DOCKER_CONFIG`` are not passed on, and for the ``docker`` binary the context is pinned to
     ``default``, so a context saved in the user's Docker config (``docker context use``) cannot move
     the tests to another daemon. A local ``unix://`` ``DOCKER_HOST`` is still honoured and any other
-    ``DOCKER_HOST`` is refused. Every receipt records the endpoint in ``daemon_endpoint``.
+    ``DOCKER_HOST`` is refused. The pin also moves a setup that picks its daemon only with ``docker
+    context use`` (rootless Docker, colima, Docker Desktop, lima, remote contexts) to the default
+    socket. Such a setup must set ``DOCKER_HOST=unix://<socket>``, which is honoured and not
+    overridden. Every test receipt records the endpoint in ``daemon_endpoint``. It is the configured
+    intent and not the observed daemon: the literal ``default`` or the ``DOCKER_HOST`` string, which
+    is also recorded for ``podman`` although Podman ignores it.
 
-    Image trust: the image is always run as given with ``--pull never``. Every receipt records it in
+    Image trust: the image is always run as given with ``--pull never``. Every test receipt records it in
     ``image``, and ``image_digest`` holds its ``sha256:`` digest, or is empty for a mutable tag. With
     ``require_digest=True``, or ``DBOUND_REQUIRE_IMAGE_DIGEST=1`` in the environment, a reference that
     does not pin a digest is refused. The argument can tighten the environment switch but never loosen it.
+    The environment is read once, when the runner is constructed.
     """
 
     def __init__(self, image: str, *, docker_binary: str = 'docker',

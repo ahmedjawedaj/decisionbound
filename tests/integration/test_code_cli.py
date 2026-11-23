@@ -1,6 +1,7 @@
 """CLI exposes consent gates and run reconciliation without live providers."""
 from __future__ import annotations
 import json
+import re
 from pathlib import Path
 import pytest
 from click import unstyle
@@ -122,3 +123,31 @@ def test_model_and_native_write_commands_need_every_consent_flag(project, monkey
         assert result.exit_code != 0, missing
         assert text.count('Requires') >= 1 and all(f in text for f in flags), (missing, text)
     assert (root/'app.py').read_text() == 'VALUE = 1\n'
+
+
+def test_a_tag_image_in_strict_digest_mode_is_a_usage_error_not_a_traceback(project, tmp_path, monkeypatch):
+    root, state, _ = project
+    monkeypatch.setenv('DBOUND_HOME', str(state))
+    monkeypatch.setenv('DBOUND_REQUIRE_IMAGE_DIGEST', '1')
+    patch = tmp_path/'change.patch'
+    patch.write_text(PATCH)
+    result = CliRunner().invoke(app, ['code', 'apply', 'Fix bug', '--path', str(root), '--patch-file', str(patch),
+                                      '--image', 'python:3.12', '--test-cmd', 'python -m pytest -q',
+                                      '--approve-writes', '--allow-docker'])
+    text = ' '.join(re.sub('[│╭╮╰╯─]', ' ', unstyle(result.output)).split())
+    assert result.exit_code == 2 and isinstance(result.exception, SystemExit)
+    assert '--image' in text and 'sha256 digest' in text and 'Traceback' not in text
+    assert (root/'app.py').read_text() == 'VALUE = 1\n'
+
+
+def test_every_cli_call_site_builds_the_docker_runner_through_the_one_helper():
+    """Five commands build the runner. Any new direct construction would bring the traceback back."""
+    import ast
+    import decisionbound.cli as cli
+    tree = ast.parse(Path(cli.__file__).read_text(encoding='utf-8'))
+    direct = [(node.lineno, getattr(parent, 'name', '')) for parent in ast.walk(tree)
+              if isinstance(parent, ast.FunctionDef) for node in ast.walk(parent)
+              if isinstance(node, ast.Call) and getattr(node.func, 'id', '') == 'DockerTestRunner']
+    assert {name for _, name in direct} == {'_docker_runner'}
+    helper_calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call) and getattr(n.func, 'id', '') == '_docker_runner']
+    assert len(helper_calls) == 5

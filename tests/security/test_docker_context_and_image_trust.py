@@ -226,3 +226,42 @@ def test_the_receipt_hash_binds_the_image(tmp_path, monkeypatch):
     second = DockerTestRunner('python@sha256:' + 'b' * 64).run(workspace(tmp_path, 'second'), ('python', '-V'), 5)
     second = dataclasses.replace(second, duration_ms=first.duration_ms)
     assert _test_receipt_hash(second) != _test_receipt_hash(first)
+
+
+# Hashes taken from the unmodified main branch (the TestOutcome.to_dict and _test_receipt_hash of the
+# commit this change started from). A receipt that carries no image information must keep them.
+MAIN_BRANCH_MOCK_HASH = '3e4cdff624d4c352c97cdadd6e46e06d2a9b8a01e92d6638775c1c2cf9517388'
+MAIN_BRANCH_DOCKER_HASH = '91df1f8781331cf1637b604d9ba5158edbd3be151d32287c293e7caaccedd5b0'
+
+
+def test_a_receipt_without_image_information_keeps_the_hash_it_had_on_main():
+    from decisionbound.code_execution import _test_receipt_hash
+    mock = TestOutcome('mock', ('python', '-m', 'pytest', '-q'), 0, False, 12, 'a' * 64, 'b' * 64)
+    older_docker = TestOutcome('docker', ('python', '-m', 'pytest'), 1, False, 340, 'c' * 64, 'd' * 64, True)
+    assert _test_receipt_hash(mock) == MAIN_BRANCH_MOCK_HASH
+    assert _test_receipt_hash(older_docker) == MAIN_BRANCH_DOCKER_HASH
+
+
+# Schema
+
+def _test_item_validator():
+    jsonschema = pytest.importorskip('jsonschema')
+    schema = json.loads((Path(__file__).resolve().parents[2] / 'schemas' / 'coding-run.v1.json').read_text())
+    return jsonschema.Draft202012Validator(schema['properties']['tests']['items'])
+
+
+def test_a_docker_receipt_with_the_new_fields_matches_the_published_schema(tmp_path, monkeypatch):
+    receipt, _ = captured_run(tmp_path, monkeypatch, DockerTestRunner(PINNED))
+    _test_item_validator().validate(receipt.to_dict())
+
+
+def test_an_older_receipt_without_the_new_fields_still_matches_the_published_schema():
+    old = TestOutcome('docker', ('python', '-V'), 0, False, 1, 'a' * 64, 'b' * 64)
+    _test_item_validator().validate(old.to_dict())
+
+
+def test_the_schema_rejects_a_malformed_image_digest():
+    jsonschema = pytest.importorskip('jsonschema')
+    bad = TestOutcome('docker', ('python', '-V'), 0, False, 1, 'a' * 64, 'b' * 64, image_digest='sha256:abc').to_dict()
+    with pytest.raises(jsonschema.ValidationError):
+        _test_item_validator().validate(bad)

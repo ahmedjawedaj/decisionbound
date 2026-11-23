@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 
 import pytest
@@ -198,3 +199,19 @@ def test_workflow_spec_canonical_approval_hash_is_versioned(repo):
     assert WorkflowSpec.from_dict(encoded).to_dict() == encoded
     with pytest.raises(ValueError, match='fingerprint'):
         request_.workflow(approval_sha256='bad')
+
+
+def test_cli_supervised_code_docker_mode_refuses_a_tag_in_strict_digest_mode_cleanly(repo, tmp_path, monkeypatch):
+    store, home, root, contract = repo
+    monkeypatch.setenv('DBOUND_REQUIRE_IMAGE_DIGEST', '1')
+    approved = tmp_path / 'contract.json'
+    approved.write_text(json.dumps(contract.to_dict()))
+    patch = tmp_path / 'change.patch'
+    patch.write_text(PATCH)
+    result = CliRunner().invoke(app, ['workflow', 'supervised-code', 'Change value to two',
+                                      '--contract', str(approved), '--patch-file', str(patch),
+                                      '--path', str(root), '--key', 'strict_digest_demo', '--source-target', 'app.py',
+                                      '--mode', 'docker', '--docker-image', 'python:3.12',
+                                      '--allow-docker', '--approve-writes'])
+    assert result.exit_code == 2 and isinstance(result.exception, SystemExit)
+    assert 'sha256 digest' in ' '.join(re.sub('[│╭╮╰╯─]', ' ', result.output).split())
