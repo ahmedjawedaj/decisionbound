@@ -10,9 +10,13 @@ On POSIX, confirmed means the process group is empty and no descendant that the
 host saw outside the group is alive. The host watches the child's process tree
 while it runs and again before it kills it. A descendant seen outside the group
 is not killed, and the result is unconfirmed. A host that cannot list processes
-confirms nothing. A descendant that left the group and was re-parented to init
-before the host looked is not visible, so confirmed is not a proof of an empty
-tree.
+confirms nothing, and the last scan before the kill decides, so one failed scan
+followed by a good one does not block a task. Once the group is empty, a descendant
+that is still alive gets only a short grace before the result is unconfirmed. A
+descendant that left the group and was re-parented to init before the host looked
+is not visible, and neither is one born between two scans, so confirmed is not a
+proof of an empty tree. Legitimate daemonizing tools such as git fsmonitor,
+gpg-agent and ssh ControlMaster count as escapees and block the task.
 
 What this is not: a security sandbox. Descendants that call ``setsid`` or
 ``setpgid`` escape a POSIX group. Windows processes that break away from the job
@@ -54,6 +58,8 @@ _JOB_NAME_PREFIX = "Local\\dbound-"
 _CONTAINMENT_ID = re.compile(r"[A-Za-z0-9_]{1,64}")
 _POLL_SECONDS = 0.02
 _ESCAPE_SCAN_SECONDS = 0.25
+_PS_TIMEOUT_SECONDS = 2.0
+_ESCAPEE_GRACE_SECONDS = 0.3
 
 
 class ContainmentError(RuntimeError):
@@ -318,7 +324,11 @@ def _ps_group_states(pgid: int) -> list[str] | None:
 
 
 def _process_table() -> dict[int, tuple[int, int, str]] | None:
-    """Map every pid to ``(ppid, pgid, state)``, or None when the host cannot list processes."""
+    """Map every pid to ``(ppid, pgid, state)``, or None when the host cannot list processes.
+
+    The cost grows with the number of processes on the host. The ``ps`` fallback
+    is cut off after a short timeout, which counts as a failed scan.
+    """
     table: dict[int, tuple[int, int, str]] = {}
     if sys.platform.startswith("linux"):
         try:
@@ -332,7 +342,7 @@ def _process_table() -> dict[int, tuple[int, int, str]] | None:
         return table
     try:
         done = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,pgid=,stat="], capture_output=True, text=True,
-                              timeout=10, env={"LC_ALL": "C", "PATH": os.environ.get("PATH", "/usr/bin:/bin")})
+                              timeout=_PS_TIMEOUT_SECONDS, env={"LC_ALL": "C", "PATH": os.environ.get("PATH", "/usr/bin:/bin")})
     except (OSError, subprocess.SubprocessError):
         return None
     if done.returncode != 0:
@@ -733,6 +743,7 @@ class ContainedProcess:
         if _IS_NT:
             self._windows_kill()
         else:
+            self._watch_tree()  # the leader is a zombie here, so its children still link to it
             _signal_group(self.pgid, signal.SIGKILL)
         self._reap_and_confirm()
         return self._returncode
@@ -762,12 +773,21 @@ class ContainedProcess:
             _signal_group(self.pgid, signal.SIGKILL)
         return self._reap_and_confirm()
 
+    def live_escapees(self) -> list[int]:
+        """Process ids of remembered descendants outside the group that still run."""
+        return sorted(item.pid for item in self._escaped.values() if _identity_matches(item.pid, item.start_token))
+
     def _watch_tree(self) -> None:
-        """Remember live descendants outside the group, which a group kill cannot reach."""
+        """Remember live descendants outside the group, which a group kill cannot reach.
+
+        A failed scan marks the tree unknown and a later successful scan clears
+        that, so the last scan before the kill decides.
+        """
         found = _escaped_descendants(self.pid, self.pgid)
         if found is None:
             self._tree_unknown = True
             return
+        self._tree_unknown = False
         for item in found:
             self._escaped[item.pid] = item
 
@@ -782,7 +802,10 @@ class ContainedProcess:
         """Reap the leader, then wait (bounded) for the group or job to be empty.
 
         On POSIX, descendants seen outside the group must be dead too, and a host
-        that cannot list processes cannot confirm anything.
+        that cannot list processes cannot confirm anything. The group may take up to
+        the confirm window to empty. A descendant outside the group is never killed
+        here, so one that is still alive once the group is empty gets only a short
+        grace before the result is unconfirmed.
         """
         end = time.monotonic() + _CONFIRM_SECONDS
         while self._returncode is None:
@@ -795,12 +818,22 @@ class ContainedProcess:
         if self._tree_unknown:
             self._confirmed = False  # the host could not list processes, so it cannot show the tree is gone
             return False
+        escapee_end: float | None = None
         while True:
             if _IS_NT:
                 empty = (self._job.active_processes() == 0 if self._job is not None
                          else process_identity(self.pid) is None)
+            elif _group_alive(self.pgid, leader_reaped=True):
+                empty = False
+            elif not _any_alive(list(self._escaped.values())):
+                empty = True
             else:
-                empty = not _group_alive(self.pgid, leader_reaped=True) and not _any_alive(list(self._escaped.values()))
+                empty = False
+                if escapee_end is None:
+                    escapee_end = time.monotonic() + _ESCAPEE_GRACE_SECONDS
+                if time.monotonic() > escapee_end:
+                    self._confirmed = False
+                    return False
             if empty:
                 self._confirmed = True
                 return True
@@ -932,8 +965,11 @@ class OrphanReaper:
     is killed only when the live process at the recorded pid has the recorded
     start token, so a recycled pid is never signalled. If the leader is gone but
     its group is still alive, ownership cannot be verified: the row is marked
-    ``unconfirmed``, nothing is killed, and the task is blocked. The journal
-    remains the only authority over task state.
+    ``unconfirmed``, nothing is killed, and the task is blocked. If the leader is
+    alive and a descendant of it sits outside the group, the group is killed but
+    that descendant is not, and the row is ``unconfirmed`` too. When the leader is
+    already gone such a descendant cannot be seen at all. The journal remains the
+    only authority over task state.
     """
 
     def __init__(self, registry: ProcessRegistry, journal: WorkflowJournal, *,
@@ -1040,7 +1076,8 @@ class OrphanReaper:
         escaped = _escaped_descendants(row["pid"], row["pgid"])
         try:
             if not _signal_group(row["pgid"], signal.SIGTERM):
-                return "gone"
+                # The group vanished, but a descendant outside it may still run.
+                return "unconfirmed" if escaped is None or _any_alive(escaped) else "gone"
             end = time.monotonic() + max(0.0, self.term_grace_seconds)
             while time.monotonic() < end and _group_alive(row["pgid"], leader_reaped=False):
                 time.sleep(_POLL_SECONDS)
@@ -1242,7 +1279,9 @@ class ContainedWorker(WorkflowWorker):
         except Exception:
             pass
         if not confirmed:
-            raise ContainmentFailure("Worker process tree termination could not be confirmed")
+            left = proc.live_escapees()
+            detail = f" (still running outside the process group: pid {', '.join(map(str, left[:5]))})" if left else ""
+            raise ContainmentFailure("Worker process tree termination could not be confirmed" + detail)
         if outcome == "cancel" or control.cancel.is_set():
             raise WorkerCancelled(control.reason or "cancelled")
         if outcome == "deadline":

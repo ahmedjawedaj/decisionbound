@@ -1034,3 +1034,108 @@ def test_reaper_marks_unconfirmed_when_the_host_cannot_list_processes(env, monke
     assert wait_dead([bystander.pid], timeout=5) == []
     assert [r["state"] for r in rows(env.store)] == ["unconfirmed"] and report["unconfirmed"] == 1
     bystander.wait()
+
+
+# ---------------------------------------------------------------------------
+# Review findings: a failed scan is judged by the last scan, and a live escapee is reported promptly
+# ---------------------------------------------------------------------------
+def sleeper_process(env):
+    proc = C.ContainedProcess.spawn([sys.executable, "-c", "__import__('time').sleep(600)"],
+                                    env={"PATH": os.environ.get("PATH", "")})
+    env.tracked.append(proc.pid)
+    return proc
+
+
+def flaky_process_table(results):
+    """A ``_process_table`` stand-in that returns the scripted results in order, then the real table."""
+    real, queue = C._process_table, list(results)
+    return lambda: queue.pop(0) if queue else real()
+
+
+@pytest.mark.skipif(IS_WINDOWS, reason="POSIX process listing")
+def test_one_failed_scan_followed_by_a_good_one_does_not_block_a_confirmed_kill(env, monkeypatch):
+    monkeypatch.setattr(C, "_process_table", flaky_process_table([None]))
+    proc = sleeper_process(env)
+    try:
+        assert proc.poll() is None  # the periodic scan runs here and fails
+        assert proc.terminate_tree(0.5) is True  # the scan before the kill succeeds and finds no escapee
+        assert proc.confirmed is True and proc.live_escapees() == []
+        assert wait_dead([proc.pid], timeout=2) == []
+    finally:
+        proc.close()
+
+
+@pytest.mark.skipif(IS_WINDOWS, reason="POSIX process listing")
+def test_a_failed_scan_at_termination_time_stays_unconfirmed_after_earlier_good_scans(env, monkeypatch):
+    monkeypatch.setattr(C, "_process_table", flaky_process_table([C._process_table(), None]))
+    monkeypatch.setattr(C, "_CONFIRM_SECONDS", 1.0)
+    proc = sleeper_process(env)
+    try:
+        assert proc.poll() is None  # a good scan
+        assert proc.terminate_tree(0.5) is False  # the last scan failed, so nothing can be shown
+        assert proc.confirmed is False
+    finally:
+        proc.close()
+
+
+@pytest.mark.skipif(IS_WINDOWS, reason="POSIX sessions: setsid has no Windows equivalent")
+def test_poll_returns_well_within_the_confirm_window_when_an_escapee_is_alive(env):
+    script = ("import subprocess, sys, time; subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(600)'], "
+              "start_new_session=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); "
+              "time.sleep(0.5)")
+    proc = C.ContainedProcess.spawn([sys.executable, "-c", script], env={"PATH": os.environ.get("PATH", "")})
+    env.tracked.append(proc.pid)
+    try:
+        longest, end = 0.0, time.monotonic() + 10
+        while proc.returncode is None and time.monotonic() < end:
+            started = time.monotonic()
+            proc.poll()
+            longest = max(longest, time.monotonic() - started)
+            time.sleep(0.01)
+        env.tracked += proc.live_escapees()
+        assert proc.confirmed is False
+        assert longest < 2.0, f"one poll call blocked the supervisor for {longest:.1f}s"
+    finally:
+        proc.close()
+
+
+@pytest.mark.skipif(IS_WINDOWS, reason="POSIX sessions: setsid has no Windows equivalent")
+def test_the_failure_message_names_the_escaped_process_id_and_nothing_else_about_it(env):
+    pidfile = env.tmp / "escapee.json"
+    worker = contained(env, ESCAPEE_TREE, pidfile, "hang", deadline=2, grace=1)
+    assignment = TaskAssignment("wf_x", "prj_x", env.home, WorkflowTask("stage", "code", "Inspect it"), 1, 0.0)
+    control = ExecutionControl(workflow_id="wf_x", task_id="stage", attempt=1, generation=1)
+    with pytest.raises(C.ContainmentFailure) as caught:
+        worker.execute_controlled(assignment, control)
+    info = json.loads(pidfile.read_text())
+    env.tracked += [info["child"], info["escapee"]]
+    assert str(caught.value) == ("Worker process tree termination could not be confirmed "
+                                 f"(still running outside the process group: pid {info['escapee']})")
+
+
+@pytest.mark.skipif(IS_WINDOWS, reason="POSIX sessions: setsid has no Windows equivalent")
+def test_reaper_is_unconfirmed_not_gone_when_the_group_vanishes_but_an_escapee_lives(env, monkeypatch):
+    pidfile = env.tmp / "escapee.json"
+    script = _PIDFILE + '''
+import os, subprocess, sys, time
+escapee = subprocess.Popen([sys.executable, "-c", "__import__('time').sleep(600)"], start_new_session=True,
+                           stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+write_ready(sys.argv[1], child=os.getpid(), escapee=escapee.pid)
+time.sleep(600)
+'''
+    leader = subprocess.Popen([sys.executable, "-c", script, str(pidfile)], start_new_session=True,
+                              stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    info = wait_for_pidfile(pidfile)
+    env.tracked += [leader.pid, info["escapee"]]
+    wid = make_workflow(env, "code")
+    lease = env.journal.claim(wid, worker_kinds={"code"}, lease_seconds=30)
+    register(env, leader.pid, owner=dead_owner(), workflow_id=wid, generation=lease.generation)
+    monkeypatch.setattr(C, "_signal_group", lambda pgid, sig: False)  # the group is already gone when signalled
+    try:
+        report = reaper(env).reap(leader_generation=1)
+    finally:
+        os.killpg(leader.pid, signal.SIGKILL)
+        leader.wait()
+    assert pid_alive(info["escapee"])
+    assert [r["state"] for r in rows(env.store)] == ["unconfirmed"] and report["unconfirmed"] == 1
+    assert report["gone"] == 0
