@@ -60,14 +60,19 @@ def create_mcp_server(project_path: Path, store: DecisionRepository | None = Non
         """Search allowed source files in the registered project (no hidden files)."""
         found = tools.call("search_project", {"query": query}, {"search_project"})
         # Excerpts are repository text a model reads, so each one is fenced as data.
-        found["results"] = [{**hit, "excerpt": render_untrusted_text(hit["excerpt"])} for hit in found["results"]]
+        # File names are repository text too, so a name cannot carry a marker outside the fence.
+        found["results"] = [{**hit, "file": neutralise_markers(str(hit["file"])),
+                             "excerpt": render_untrusted_text(hit["excerpt"])} for hit in found["results"]]
+        if "query" in found:
+            found["query"] = neutralise_markers(str(found["query"]))
         return found
 
     @server.tool()
     def read_file(path: str) -> dict:
         """Read a capped excerpt of a vetted repository source file."""
         found = tools.call("read_file", {"path": path}, {"read_file"})
-        return {**found, "text": render_untrusted_text(found["text"])}
+        return {**found, "path": neutralise_markers(str(found["path"])),
+                "text": render_untrusted_text(found["text"])}
 
     @server.tool()
     def list_project_decisions() -> list[dict]:
@@ -90,7 +95,8 @@ def create_mcp_server(project_path: Path, store: DecisionRepository | None = Non
         capsule = service.prepare(task, project, max_tokens).to_dict()
         # Decision text came from repository files. Fence only the copy a model reads, so
         # the stored capsule and its digests stay as they are.
-        capsule["items"] = [{**item, "source": neutralise_markers(item["source"]),
+        capsule["items"] = [{**item, "key": neutralise_markers(str(item["key"])),
+                             "source": neutralise_markers(item["source"]),
                              "text": render_untrusted_text(item["text"])} for item in capsule["items"]]
         return capsule
 
