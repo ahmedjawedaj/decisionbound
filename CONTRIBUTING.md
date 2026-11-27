@@ -29,6 +29,12 @@ node --test tests/site-demo.test.mjs
 
 Run `npm run check` and `npm test` in `apps/vscode`. Real Docker, MCP, browser and editor-host gates require their actual prerequisites; report unsupported gates rather than replacing them with mocks.
 
+## Local preflight and git hooks
+
+Run `python scripts/preflight.py` before you push. It runs `scripts/check_publication.py`, `scripts/check_docs.py`, an API reference drift check and `scripts/check_attribution.py` over your commits that are not yet on `origin/main`, in that order, and stops at the first failure with the step name and what to run to fix it. The drift check regenerates `site_docs/api-reference.md` and fails when the result differs from HEAD. It leaves the regenerated file in place, so you only need to commit it. `--fast` skips the slow attribution history walk, `--only NAME` runs one step and `--base REV` sets where your commits start.
+
+The hooks in `.githooks` are optional and are off until you run `python scripts/install_hooks.py`. That sets `core.hooksPath` to `.githooks` in this clone only, prints what it did and never touches your global config. `python scripts/install_hooks.py --uninstall` unsets it. The `commit-msg` hook applies the attribution rules to the message and to the author Git would record, so a Claude or Anthropic `Co-Authored-By` trailer, a `Claude-Session` trailer or a generated-by footer is refused before the commit exists. The `pre-push` hook runs the preflight. Both need Python 3.11 or newer on `PATH` and work under Git for Windows. `git commit --no-verify` and `git push --no-verify` skip them, and CI still runs the same checks.
+
 ## Pull requests
 
 1. Work on a scoped branch. Describe the concrete problem, resulting behavior and verification.

@@ -1,0 +1,23 @@
+#!/bin/sh
+# Run the local preflight before a push.
+# Installed only when you run: python scripts/install_hooks.py
+. "$(dirname "$0")/find-python.sh"
+root=$(git rev-parse --show-toplevel) || exit 1
+
+# A push that only deletes remote branches has nothing to check.
+seen=0
+only_deletes=1
+while read -r local_ref local_sha remote_ref remote_sha
+do
+    seen=1
+    case "$local_sha" in
+        *[!0]*) only_deletes=0 ;;
+    esac
+done
+if [ "$seen" = 1 ] && [ "$only_deletes" = 1 ]
+then
+    exit 0
+fi
+
+cd "$root" || exit 1
+exec $PYTHON_CMD scripts/preflight.py
