@@ -1006,6 +1006,10 @@ This module imports without MCP installed; call ``create_mcp_server`` after
 to the initialized workspace supplied by its operator. The LLM does not get a
 free-form ``project_path`` tool parameter and cannot change workspace roots.
 
+### `WorkflowNotFound`
+
+The workflow ID is unknown to this project's state (a ``KeyError`` for compatibility).
+
 ### `create_mcp_server`
 
 ```python
@@ -1026,9 +1030,20 @@ Security:
     Local stdio inherits OS-user access; it is not a tenant authorization
     mechanism. Remote MCP transport requires separately implemented auth.
 
+Tool errors:
+    Every anticipated tool failure names what failed and one safe next step,
+    such as which read-only tool lists valid values or that the operator must
+    act in the local client. Messages never echo caller input, host paths,
+    tokens or diffs. With the official SDK installed they are raised as
+    ``ToolError`` subclasses, because the SDK shows the model only those
+    messages and reduces any other exception to ``Error executing tool <name>``.
+
 Raises:
     RuntimeError: The optional MCP v2 package is missing.
+    FileNotFoundError: The workspace has no readable project manifest. The
+        message adds a next step for the operator.
     PermissionError: The workspace identity does not match stored state.
+    ValueError: The project manifest is invalid.
 
 ### `serve_stdio`
 

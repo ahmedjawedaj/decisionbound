@@ -266,6 +266,7 @@
     "tests/contract/test_extension_contracts.py",
     "tests/contract/test_host_certification_sprint11.py",
     "tests/contract/test_idle_soak_sprint13.py",
+    "tests/contract/test_mcp_error_hints.py",
     "tests/contract/test_mcp_server_contract.py",
     "tests/contract/test_public_schemas.py",
     "tests/contract/test_red_receipts_sprint07.py",

@@ -138,7 +138,9 @@ def test_mcp_review_metadata_refuses_with_bounded_error(completed, tmp_path, mon
     _break_git("mode-check-exit", tmp_path, monkeypatch, root)
     with pytest.raises(ReviewGitUnavailable) as caught:
         server.tools["get_workflow_review_metadata"](wid)
-    assert str(caught.value) == REFUSAL
+    # The MCP message keeps the fixed refusal as its first sentence and adds one next step.
+    assert str(caught.value).startswith(REFUSAL + ". ")
+    assert "dbound review inspect" in str(caught.value)
     _assert_clean(str(caught.value), tmp_path)
 
 

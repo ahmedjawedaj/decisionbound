@@ -293,31 +293,62 @@ def repository_readonly_tools(root: Path, max_file_bytes: int = 512_000) -> Tool
     registry = ToolRegistry()
 
     def safe_file(path: str) -> Path:
-        """Deny protected names (see ``_is_protected_path``) and unsupported/binary file types."""
+        """Deny protected names (see ``_is_protected_path``) and unsupported/binary file types.
+
+        Every refusal names what failed and one next step. Messages never echo
+        the caller's path and never carry a host path or an operating-system error.
+        """
         candidate = Path(path)
         if (_is_protected_path(candidate.parts)
                 or any((base / Path(*candidate.parts[:index])).is_symlink()
                        for index in range(1, len(candidate.parts) + 1))):
-            raise PermissionError("Protected repository path")
-        target = safe_relative_path(base, path)
-        if target.suffix.lower() not in _SUPPORTED or target.stat().st_size > max_file_bytes:
-            raise PermissionError("File type or size not supported")
+            raise PermissionError(
+                "That path is protected and is never served. Hidden, secret-like, excluded and symlinked "
+                "paths are refused. Call search_project to find readable source files.")
+        if candidate.is_absolute() or candidate.anchor or ".." in candidate.parts:
+            raise ValueError("Paths must be relative to the project root and cannot contain '..'. "
+                             "Call search_project to find valid file paths.")
+        try:
+            target = safe_relative_path(base, path)
+            size = target.stat().st_size
+        except ValueError as exc:
+            raise ValueError("That path is not a regular file inside the project. "
+                             "Call search_project to find valid file paths.") from exc
+        except OSError as exc:
+            raise FileNotFoundError("No such file in the project. "
+                                    "Call search_project to find existing file paths.") from exc
+        if target.suffix.lower() not in _SUPPORTED:
+            raise PermissionError("Only text files with a supported extension are served (" +
+                                  ", ".join(sorted(_SUPPORTED)) + "). Call search_project to find a "
+                                  "supported file, or ask the operator to open this one locally.")
+        if size > max_file_bytes:
+            raise PermissionError(f"That file is larger than the {max_file_bytes} byte limit and is not served. "
+                                  "Call search_project to find a smaller file, or ask the operator to open "
+                                  "this one locally.")
         return target
 
     def read(args: dict) -> dict:
         """Return a capped excerpt of a reviewed local source file."""
         path = args.get("path")
         if not isinstance(path, str):
-            raise ValueError("read_file expects string path")
+            raise ValueError("read_file needs a text path relative to the project root. "
+                             "Call search_project to find file paths.")
         file = safe_file(path)
+        try:
+            text = file.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            # The operating-system text names the host path, so it is replaced by a fixed message.
+            raise PermissionError("That file could not be read. Call search_project to find another file, "
+                                  "or ask the operator to check its permissions.") from exc
         # At most 200 lines and 6000 chars are returned, independent of caller.
-        return {"path": path, "text": "\n".join(file.read_text(encoding="utf-8", errors="replace").splitlines()[:200])[:6000]}
+        return {"path": path, "text": "\n".join(text.splitlines()[:200])[:6000]}
 
     def search(args: dict) -> dict:
         """Bounded lexical search excluding hidden/secret and large files."""
         term = args.get("query")
         if not isinstance(term, str) or not 2 <= len(term) <= 120:
-            raise ValueError("search_project expects a 2–120 char query")
+            raise ValueError("search_project needs a query of 2 to 120 characters. Call it again with a "
+                             "shorter or longer term, for example a function or class name.")
         results = []
         count = 0
         inspected = 0
@@ -333,7 +364,11 @@ def repository_readonly_tools(root: Path, max_file_bytes: int = 512_000) -> Tool
             except (ValueError, PermissionError, FileNotFoundError):
                 continue
             count += 1
-            for number, line in enumerate(vetted.read_text(encoding="utf-8", errors="replace").splitlines(), start=1):
+            try:
+                lines = vetted.read_text(encoding="utf-8", errors="replace").splitlines()
+            except OSError:
+                continue  # An unreadable file is skipped like any other file the tool cannot serve.
+            for number, line in enumerate(lines, start=1):
                 if term.casefold() in line.casefold():
                     results.append({"file": relative, "line": number, "excerpt": line[:300]})
                     break

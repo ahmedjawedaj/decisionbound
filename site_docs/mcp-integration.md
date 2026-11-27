@@ -51,6 +51,12 @@ The server operator binds it to an existing repository at launch. Tools never ac
 
 **Local stdio is trusted as the host operating-system user.** Any MCP host connected to it can access the exposed read-only repository data. This is not equivalent to multi-tenant authorization, and a remote MCP endpoint should not be deployed without a separately reviewed identity/auth implementation.
 
+## Error messages and next steps
+
+A tool error names what failed and gives one safe next step, so an agent can recover without guessing. Typical steps are to call `search_project` to find a valid path, to use the stated bounds for `query`, `task` or `max_tokens`, to ask the operator for a workflow ID, or to ask the operator to run `dbound state check` or `dbound review inspect` in the local client. The server never offers a write path as a next step, and approval stays in the local client.
+
+Messages are fixed text. They do not repeat the caller's input and do not carry host paths, operating-system error text, tokens or diffs. The official SDK shows the model only the message of a `ToolError` and reduces any other exception to `Error executing tool <name>`, so these errors are raised as `ToolError` subclasses that are also the original exception type (`PermissionError`, `ValueError`, `KeyError` and so on). `tests/contract/test_mcp_error_hints.py` calls each tool function for each error class, and the real-SDK test checks that the hint reaches the client.
+
 ## Tests and limitations
 
 - Handler contract tests use an injected fake server to validate registration, root restrictions, and tool behavior without requiring network access.
