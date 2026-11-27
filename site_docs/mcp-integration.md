@@ -41,6 +41,8 @@ Example host configuration (format varies by product and version):
 | `get_workflow_events(workflow_id)` | Durable metadata-only handoff and claim events; same project only | Read-only |
 | `decisionbound://project` | Project identity metadata | Read-only resource |
 
+Text a model reads is fenced. In `search_project`, `read_file`, `list_project_decisions` and `prepare_context` the file text, excerpts, decision statements and item text sit between `<<<UNTRUSTED_TOOL_OUTPUT>>>` and `<<<END_UNTRUSTED_TOOL_OUTPUT>>>`, and any run of three or more `<` or `>` in them is broken up. Names and keys such as file paths, the echoed query, item keys and sources are not fenced but get the same breaking up. This is marking only, so see the threat model in `security.md`. Look-alike characters such as fullwidth `<` are not handled.
+
 There is no `execute_shell`, `write_file`, `install_skill`, `approve_decision`, `change_user`, or `switch_project` tool.
 
 ## Workspace and authorization boundary

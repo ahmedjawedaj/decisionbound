@@ -70,6 +70,23 @@ def render_untrusted_observation(observation: str, allowed_tools: frozenset[str]
     return f"tool: {tool}\n{UNTRUSTED_BEGIN}\n{body}\n{UNTRUSTED_END}{note}"
 
 
+def render_untrusted_text(text: str, limit: int | None = None) -> str:
+    """Fence stored free text (a decision statement, an ADR excerpt) as data for a model.
+
+    Marker-like runs are neutralised first, so the result always holds one opening and one
+    closing marker, and the markers are the ones used for tool observations. With ``limit``
+    the neutralised text is cut to that many characters and a note after the closing marker
+    says so. The stored text is not changed.
+    Use it only for the copy a model reads, never for stored or hashed records.
+    """
+    body = neutralise_markers(str(text))
+    note = ""
+    if limit is not None and len(body) > limit:
+        body = body[:limit]
+        note = f"\n[text was cut, showing at most {limit} characters, so it may end mid-value]"
+    return f"{UNTRUSTED_BEGIN}\n{body}\n{UNTRUSTED_END}{note}"
+
+
 @dataclass(frozen=True)
 class ToolAction:
     """Strict action proposed by a planner and revalidated by the runtime."""
