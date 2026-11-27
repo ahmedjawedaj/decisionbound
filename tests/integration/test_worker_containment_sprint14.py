@@ -11,6 +11,7 @@ from the platform documentation and are not yet verified by any run.
 """
 from __future__ import annotations
 
+import errno
 import json
 import os
 import signal
@@ -917,3 +918,480 @@ def test_ps_group_listing_sees_a_zombie_only_group_as_not_runnable(env):
         time.sleep(0.05)
     assert all(state.startswith("Z") for state in C._ps_group_states(proc.pid))  # unreaped zombie
     proc.wait()
+
+
+# ---------------------------------------------------------------------------
+# A descendant that left the process group must never be reported as dead
+# ---------------------------------------------------------------------------
+ESCAPEE_TREE = _PIDFILE + '''
+import json, os, subprocess, sys, time
+pidfile, mode = sys.argv[1], sys.argv[2]
+sys.stdin.read()
+lifetime = "0.3" if mode == "short_lived" else "600"
+escapee = subprocess.Popen([sys.executable, "-c", f"__import__('time').sleep({lifetime})"],
+                           start_new_session=True, stdin=subprocess.DEVNULL,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+write_ready(pidfile, child=os.getpid(), escapee=escapee.pid)
+time.sleep(1.5)
+if mode == "finish":
+    print(json.dumps({"status": "mock_passed"}))
+    sys.exit(0)
+time.sleep(600)
+'''
+
+
+def run_escapee_worker(env, mode, *, deadline=4):
+    """Run a code task whose worker starts a descendant in a new session. Return (info, task entry)."""
+    pidfile = env.tmp / "escapee.json"
+    wid = make_workflow(env, "code", cost=0.5, budget=1.0)
+    worker = contained(env, ESCAPEE_TREE, pidfile, mode, deadline=deadline, grace=1)
+    supervise(env, {"code": worker}, wid)
+    info = json.loads(pidfile.read_text()) if pidfile.exists() else pytest.fail("child never became ready")
+    env.tracked += [info["child"], info["escapee"]]
+    return info, task_state(env, wid)
+
+
+@pytest.mark.skipif(IS_WINDOWS, reason="POSIX sessions: setsid has no Windows equivalent")
+def test_deadline_is_unconfirmed_when_a_descendant_left_the_process_group(env):
+    info, entry = run_escapee_worker(env, "hang")
+    assert pid_alive(info["escapee"]), "the escaped descendant was expected to survive the group kill"
+    assert wait_dead([info["child"]], timeout=2) == []
+    assert [r["state"] for r in rows(env.store)] == ["unconfirmed"]
+    assert entry["state"] == "blocked" and entry["error_type"] == "containment_failed"
+
+
+@pytest.mark.skipif(IS_WINDOWS, reason="POSIX sessions: setsid has no Windows equivalent")
+def test_a_worker_that_exits_normally_is_unconfirmed_when_a_descendant_left_the_process_group(env):
+    info, entry = run_escapee_worker(env, "finish")
+    assert pid_alive(info["escapee"]), "the escaped descendant was expected to outlive its parent"
+    assert [r["state"] for r in rows(env.store)] == ["unconfirmed"]
+    assert entry["state"] == "blocked" and entry["error_type"] == "containment_failed"
+
+
+@pytest.mark.skipif(IS_WINDOWS, reason="POSIX sessions: setsid has no Windows equivalent")
+def test_a_descendant_that_left_the_group_and_already_exited_does_not_block_a_confirmed_kill(env):
+    info, entry = run_escapee_worker(env, "short_lived")
+    assert not pid_alive(info["escapee"])
+    assert [r["state"] for r in rows(env.store)] == ["terminated"]
+    assert entry["error_type"] == "WorkerDeadlineExceeded"
+
+
+@pytest.mark.skipif(IS_WINDOWS, reason="POSIX process listing")
+def test_termination_is_unconfirmed_when_the_host_cannot_list_processes(env, monkeypatch):
+    monkeypatch.setattr(C, "_process_table", lambda: None, raising=False)
+    monkeypatch.setattr(C, "_CONFIRM_SECONDS", 1.0)
+    proc = C.ContainedProcess.spawn([sys.executable, "-c", "__import__('time').sleep(600)"],
+                                    env={"PATH": os.environ.get("PATH", "")})
+    env.tracked.append(proc.pid)
+    try:
+        assert proc.terminate_tree(0.5) is False
+        assert proc.confirmed is False
+        assert wait_dead([proc.pid], timeout=2) == []
+    finally:
+        proc.close()
+
+
+@pytest.mark.skipif(IS_WINDOWS, reason="POSIX sessions: setsid has no Windows equivalent")
+def test_reaper_marks_unconfirmed_when_the_orphaned_worker_has_a_descendant_outside_its_group(env):
+    pidfile = env.tmp / "escapee.json"
+    script = _PIDFILE + '''
+import os, subprocess, sys, time
+escapee = subprocess.Popen([sys.executable, "-c", "__import__('time').sleep(600)"], start_new_session=True,
+                           stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+write_ready(sys.argv[1], child=os.getpid(), escapee=escapee.pid)
+time.sleep(600)
+'''
+    leader = subprocess.Popen([sys.executable, "-c", script, str(pidfile)], start_new_session=True,
+                              stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    info = wait_for_pidfile(pidfile)
+    env.tracked += [leader.pid, info["escapee"]]
+    wid = make_workflow(env, "code")
+    lease = env.journal.claim(wid, worker_kinds={"code"}, lease_seconds=30)
+    register(env, leader.pid, owner=dead_owner(), workflow_id=wid, generation=lease.generation)
+    report = reaper(env).reap(leader_generation=1)
+    leader.wait()
+    assert pid_alive(info["escapee"])
+    assert [r["state"] for r in rows(env.store)] == ["unconfirmed"] and report["unconfirmed"] == 1
+    assert report["terminated"] == 0
+    assert task_state(env, wid)["error_type"] == "containment_failed"
+
+
+@pytest.mark.skipif(IS_WINDOWS, reason="POSIX sessions: setsid has no Windows equivalent")
+def test_a_descendant_first_seen_at_termination_time_is_also_unconfirmed(env, monkeypatch):
+    monkeypatch.setattr(C, "_ESCAPE_SCAN_SECONDS", 3600.0)  # no periodic scan after the first poll
+    info, entry = run_escapee_worker(env, "hang")
+    assert pid_alive(info["escapee"])
+    assert [r["state"] for r in rows(env.store)] == ["unconfirmed"]
+    assert entry["error_type"] == "containment_failed"
+
+
+@pytest.mark.skipif(IS_WINDOWS, reason="POSIX process listing")
+def test_reaper_marks_unconfirmed_when_the_host_cannot_list_processes(env, monkeypatch):
+    bystander = spawn_bystander()
+    env.tracked.append(bystander.pid)
+    register(env, bystander.pid, owner=dead_owner())
+    monkeypatch.setattr(C, "_process_table", lambda: None, raising=False)
+    report = reaper(env).reap(leader_generation=1)
+    assert wait_dead([bystander.pid], timeout=5) == []
+    assert [r["state"] for r in rows(env.store)] == ["unconfirmed"] and report["unconfirmed"] == 1
+    bystander.wait()
+
+
+# ---------------------------------------------------------------------------
+# Review findings: a failed scan is judged by the last scan, and a live escapee is reported promptly
+# ---------------------------------------------------------------------------
+def sleeper_process(env):
+    proc = C.ContainedProcess.spawn([sys.executable, "-c", "__import__('time').sleep(600)"],
+                                    env={"PATH": os.environ.get("PATH", "")})
+    env.tracked.append(proc.pid)
+    return proc
+
+
+def flaky_process_table(results):
+    """A ``_process_table`` stand-in that returns the scripted results in order, then the real table."""
+    real, queue = C._process_table, list(results)
+    return lambda: queue.pop(0) if queue else real()
+
+
+@pytest.mark.skipif(IS_WINDOWS, reason="POSIX process listing")
+def test_one_failed_scan_followed_by_a_good_one_does_not_block_a_confirmed_kill(env, monkeypatch):
+    monkeypatch.setattr(C, "_process_table", flaky_process_table([None]))
+    proc = sleeper_process(env)
+    try:
+        assert proc.poll() is None  # the periodic scan runs here and fails
+        assert proc.terminate_tree(0.5) is True  # the scan before the kill succeeds and finds no escapee
+        assert proc.confirmed is True and proc.live_escapees() == []
+        assert wait_dead([proc.pid], timeout=2) == []
+    finally:
+        proc.close()
+
+
+@pytest.mark.skipif(IS_WINDOWS, reason="POSIX process listing")
+def test_a_failed_scan_at_termination_time_stays_unconfirmed_after_earlier_good_scans(env, monkeypatch):
+    monkeypatch.setattr(C, "_process_table", flaky_process_table([C._process_table(), None]))
+    monkeypatch.setattr(C, "_CONFIRM_SECONDS", 1.0)
+    proc = sleeper_process(env)
+    try:
+        assert proc.poll() is None  # a good scan
+        assert proc.terminate_tree(0.5) is False  # the last scan failed, so nothing can be shown
+        assert proc.confirmed is False
+    finally:
+        proc.close()
+
+
+@pytest.mark.skipif(IS_WINDOWS, reason="POSIX sessions: setsid has no Windows equivalent")
+def test_a_scan_after_the_leader_exits_cannot_vouch_for_a_tree_it_could_not_see(env, monkeypatch):
+    """Every scan fails while the worker runs. The children of an exited leader are re-parented to init,
+    so one good scan afterwards sees no escapee and must not turn the run into a confirmed kill."""
+    real, state = C._process_table, {"fail": True}
+    monkeypatch.setattr(C, "_process_table", lambda: None if state["fail"] else real())
+    monkeypatch.setattr(C, "_CONFIRM_SECONDS", 1.0)
+    pidfile = env.tmp / "escapee.pid"
+    script = ("import subprocess, sys, time; "
+              "p = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(600)'], start_new_session=True, "
+              "stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); "
+              "open(sys.argv[1], 'w').write(str(p.pid)); time.sleep(0.5)")
+    proc = C.ContainedProcess.spawn([sys.executable, "-c", script, str(pidfile)], env={"PATH": os.environ.get("PATH", "")})
+    env.tracked.append(proc.pid)
+    try:
+        end = time.monotonic() + 10
+        while proc.returncode is None and time.monotonic() < end:
+            if proc._leader_exited():
+                state["fail"] = False
+            proc.poll()
+            time.sleep(0.01)
+        assert proc.returncode is not None
+        assert proc.confirmed is False, "a live escapee was reported as a proven kill"
+    finally:
+        if pidfile.exists():
+            env.tracked.append(int(pidfile.read_text()))
+        proc.close()
+
+
+@pytest.mark.skipif(IS_WINDOWS, reason="POSIX sessions: setsid has no Windows equivalent")
+def test_poll_returns_well_within_the_confirm_window_when_an_escapee_is_alive(env):
+    script = ("import subprocess, sys, time; subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(600)'], "
+              "start_new_session=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); "
+              "time.sleep(0.5)")
+    proc = C.ContainedProcess.spawn([sys.executable, "-c", script], env={"PATH": os.environ.get("PATH", "")})
+    env.tracked.append(proc.pid)
+    try:
+        longest, end = 0.0, time.monotonic() + 10
+        while proc.returncode is None and time.monotonic() < end:
+            started = time.monotonic()
+            proc.poll()
+            longest = max(longest, time.monotonic() - started)
+            time.sleep(0.01)
+        env.tracked += proc.live_escapees()
+        assert proc.confirmed is False
+        assert longest < 2.0, f"one poll call blocked the supervisor for {longest:.1f}s"
+    finally:
+        proc.close()
+
+
+@pytest.mark.skipif(IS_WINDOWS, reason="POSIX sessions: setsid has no Windows equivalent")
+def test_the_failure_message_names_the_escaped_process_id_and_nothing_else_about_it(env):
+    pidfile = env.tmp / "escapee.json"
+    worker = contained(env, ESCAPEE_TREE, pidfile, "hang", deadline=2, grace=1)
+    assignment = TaskAssignment("wf_x", "prj_x", env.home, WorkflowTask("stage", "code", "Inspect it"), 1, 0.0)
+    control = ExecutionControl(workflow_id="wf_x", task_id="stage", attempt=1, generation=1)
+    with pytest.raises(C.ContainmentFailure) as caught:
+        worker.execute_controlled(assignment, control)
+    info = json.loads(pidfile.read_text())
+    env.tracked += [info["child"], info["escapee"]]
+    assert str(caught.value) == ("Worker process tree termination could not be confirmed "
+                                 f"(still running outside the process group: pid {info['escapee']})")
+
+
+@pytest.mark.skipif(IS_WINDOWS, reason="POSIX sessions: setsid has no Windows equivalent")
+def test_reaper_is_unconfirmed_not_gone_when_the_group_vanishes_but_an_escapee_lives(env, monkeypatch):
+    pidfile = env.tmp / "escapee.json"
+    script = _PIDFILE + '''
+import os, subprocess, sys, time
+escapee = subprocess.Popen([sys.executable, "-c", "__import__('time').sleep(600)"], start_new_session=True,
+                           stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+write_ready(sys.argv[1], child=os.getpid(), escapee=escapee.pid)
+time.sleep(600)
+'''
+    leader = subprocess.Popen([sys.executable, "-c", script, str(pidfile)], start_new_session=True,
+                              stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    info = wait_for_pidfile(pidfile)
+    env.tracked += [leader.pid, info["escapee"]]
+    wid = make_workflow(env, "code")
+    lease = env.journal.claim(wid, worker_kinds={"code"}, lease_seconds=30)
+    register(env, leader.pid, owner=dead_owner(), workflow_id=wid, generation=lease.generation)
+    monkeypatch.setattr(C, "_signal_group", lambda pgid, sig: False)  # the group is already gone when signalled
+    try:
+        report = reaper(env).reap(leader_generation=1)
+    finally:
+        os.killpg(leader.pid, signal.SIGKILL)
+        leader.wait()
+    assert pid_alive(info["escapee"])
+    assert [r["state"] for r in rows(env.store)] == ["unconfirmed"] and report["unconfirmed"] == 1
+    assert report["gone"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Hangup and quit signals reach the same orderly stop as SIGTERM
+# ---------------------------------------------------------------------------
+HANGUP_SIGNALS = [name for name in ("SIGHUP", "SIGQUIT") if hasattr(signal, name)]
+
+
+def _default_hangup_dispositions():
+    """Give SIGHUP and SIGQUIT their default action, whatever the launcher inherited."""
+    for name in HANGUP_SIGNALS:
+        signal.signal(getattr(signal, name), signal.SIG_DFL)
+
+
+@pytest.fixture
+def default_hangup_dispositions():
+    """Serve tests assume a launcher that did not ignore SIGHUP or SIGQUIT, as nohup does."""
+    before = {getattr(signal, name): signal.getsignal(getattr(signal, name)) for name in HANGUP_SIGNALS}
+    _default_hangup_dispositions()
+    yield
+    for number, handler in before.items():
+        signal.signal(number, handler)
+
+
+# Runs the real `dbound workflow serve --contained` command with a stand-in
+# contained worker, so a real child and grandchild exist to be cleaned up. The
+# stop grace is shortened to one second so the test does not wait ten.
+SERVE_HARNESS = '''
+import dataclasses, sys
+from decisionbound import background, worker_child
+from decisionbound.containment import ContainedWorker
+pidfile, child_script, home = sys.argv[1:4]
+
+@dataclasses.dataclass(frozen=True)
+class QuickStop(background.CoordinatorSettings):
+    worker_stop_grace_seconds: int = 1
+
+background.CoordinatorSettings = QuickStop
+worker_child.child_can_import = lambda: True
+worker_child.contained_preparation_worker = lambda registry, **_: ContainedWorker(
+    [sys.executable, "-c", child_script, pidfile], registry=registry, deadline_seconds=600)
+from decisionbound.cli import app
+app(["workflow", "serve", "--path", home, "--poll-seconds", "0.1", "--contained"])
+'''
+
+
+@pytest.mark.skipif(IS_WINDOWS, reason="POSIX signals")
+@pytest.mark.parametrize("name", ["SIGTERM"] + HANGUP_SIGNALS)
+def test_serve_stops_in_order_on_terminate_hangup_and_quit(env, name):
+    pidfile = env.tmp / "tree.json"
+    make_workflow(env, "prepare")
+    service = subprocess.Popen(
+        [sys.executable, "-c", SERVE_HARNESS, str(pidfile), TREE_CHILD, str(env.home)],
+        env=dict(os.environ, PYTHONPATH=SOURCE_ROOT, DBOUND_HOME=str(env.store.path.parent)),
+        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        start_new_session=True, preexec_fn=None if IS_WINDOWS else _default_hangup_dispositions)
+    try:
+        info = wait_for_pidfile(pidfile)
+        env.tracked += [info["child"], info["grandchild"], service.pid]
+        assert LocalCoordinatorLeader(env.store).status()["running"]
+        os.kill(service.pid, getattr(signal, name))
+        output, _ = service.communicate(timeout=30)
+    finally:
+        if service.poll() is None:
+            service.kill()
+            service.wait(timeout=15)
+    assert service.returncode == 0, f"{name} ended the service with status {service.returncode}"
+    assert json.loads(output)["stopped"] is True
+    assert wait_dead([info["child"], info["grandchild"]], timeout=5) == []
+    assert not LocalCoordinatorLeader(env.store).status()["running"]
+    assert [r["state"] for r in rows(env.store)] == ["terminated"]
+
+
+@pytest.mark.skipif(IS_WINDOWS or "SIGHUP" not in HANGUP_SIGNALS, reason="POSIX signals")
+def test_serve_hangup_with_the_terminal_gone_still_exits_cleanly(env):
+    """After a hangup the output pipe is often closed. Only the summary may be lost."""
+    pidfile = env.tmp / "tree.json"
+    make_workflow(env, "prepare")
+    service = subprocess.Popen(
+        [sys.executable, "-c", SERVE_HARNESS, str(pidfile), TREE_CHILD, str(env.home)],
+        env=dict(os.environ, PYTHONPATH=SOURCE_ROOT, DBOUND_HOME=str(env.store.path.parent)),
+        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        start_new_session=True, preexec_fn=None if IS_WINDOWS else _default_hangup_dispositions)
+    try:
+        info = wait_for_pidfile(pidfile)
+        env.tracked += [info["child"], info["grandchild"], service.pid]
+        service.stdout.close()
+        os.kill(service.pid, signal.SIGHUP)
+        _, errors = service.communicate(timeout=30)
+    finally:
+        if service.poll() is None:
+            service.kill()
+            service.wait(timeout=15)
+    assert service.returncode == 0, errors.decode()[-500:]
+    assert errors == b""
+    assert wait_dead([info["child"], info["grandchild"]], timeout=5) == []
+    assert not LocalCoordinatorLeader(env.store).status()["running"]
+
+
+@pytest.mark.skipif(IS_WINDOWS, reason="POSIX pipes")
+def test_summary_on_a_dead_pipe_leaves_nothing_to_fail_at_interpreter_exit():
+    """A failed summary write must point stdout at the null device so nothing fails again at exit with status 120."""
+    code = (
+        "import sys\n"
+        "from decisionbound import cli\n"
+        "def broken(value):\n"
+        "    sys.stdout.write('x' * 100)\n"
+        "    sys.stdout.flush()\n"
+        "cli._print = broken\n"
+        "sys.stdin.read(1)\n"
+        "cli._print_final_summary({'stopped': True})\n"
+        "import os\n"
+        "same = os.fstat(1).st_rdev == os.stat(os.devnull).st_rdev\n"
+        "sys.stderr.write('discarded' if same else 'still-attached')\n")
+    child = subprocess.Popen([sys.executable, "-c", code], env=dict(os.environ, PYTHONPATH=SOURCE_ROOT),
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        child.stdout.close()
+        _, errors = child.communicate(input=b"go", timeout=30)
+    finally:
+        if child.poll() is None:
+            child.kill()
+            child.wait(timeout=15)
+    assert child.returncode == 0, errors.decode()[-500:]
+    assert errors == b"discarded", errors.decode()[-500:]
+
+
+@pytest.mark.skipif(IS_WINDOWS, reason="POSIX signals")
+def test_a_handler_installed_from_c_is_restored_to_the_default(monkeypatch, tmp_path, default_hangup_dispositions):
+    """getsignal returns None for such a handler, and signal.signal rejects None."""
+    real = signal.getsignal
+    monkeypatch.setattr(signal, "getsignal", lambda n: None if n == signal.SIGHUP else real(n))
+    run_serve_in_process(monkeypatch, tmp_path, lambda stop_event: None)
+    monkeypatch.undo()
+    assert signal.getsignal(signal.SIGHUP) == signal.SIG_DFL
+    assert signal.getsignal(signal.SIGQUIT) == signal.SIG_DFL
+
+
+@pytest.mark.parametrize("code,kept", [(errno.EPIPE, False), (errno.EIO, False), (errno.EBADF, False), (errno.ENOSPC, True)])
+def test_only_a_gone_output_is_forgiven_after_the_stop(monkeypatch, code, kept):
+    """A full disk still fails, because the caller would otherwise never see the missing summary."""
+    from decisionbound import cli
+
+    def broken(value):
+        raise OSError(code, "write failed")
+
+    monkeypatch.setattr(cli, "_print", broken)
+    monkeypatch.setattr(cli, "_discard_stdout", lambda: None)
+    if kept:
+        with pytest.raises(OSError):
+            cli._print_final_summary({"stopped": True})
+    else:
+        cli._print_final_summary({"stopped": True})
+
+
+def run_serve_in_process(monkeypatch, tmp_path, observe):
+    """Run the serve command in this thread with a fake coordinator run.
+
+    ``observe`` receives the stop event and runs inside the service loop.
+    """
+    from typer.testing import CliRunner
+    from decisionbound import background, cli
+    store = SQLiteRepository(tmp_path / "data" / "state.sqlite3")
+    home = tmp_path / "project"
+    home.mkdir()
+    init_project(home, store)
+    monkeypatch.setenv("DBOUND_HOME", str(store.path.parent))
+
+    def fake_run(self, *, stop_event=None, **_):
+        observe(stop_event)
+        return {"stopped": True}
+
+    monkeypatch.setattr(background.BackgroundCoordinator, "run", fake_run)
+    outcome = CliRunner().invoke(cli.app, ["workflow", "serve", "--path", str(home)])
+    assert outcome.exit_code == 0, outcome.output
+    return outcome
+
+
+@pytest.mark.skipif(IS_WINDOWS, reason="POSIX signals")
+def test_serve_installs_and_restores_every_stop_signal_handler(monkeypatch, tmp_path, default_hangup_dispositions):
+    names = ["SIGINT", "SIGTERM"] + HANGUP_SIGNALS
+    before = {n: signal.getsignal(getattr(signal, n)) for n in names}
+    inside = {}
+
+    def observe(stop_event):
+        for n in names:
+            inside[n] = signal.getsignal(getattr(signal, n))
+        # Never raise a signal at this process unless a handler would catch it.
+        assert callable(inside["SIGHUP"]), "SIGHUP has no handler"
+        os.kill(os.getpid(), signal.SIGHUP)
+        assert stop_event.wait(5), "SIGHUP did not set the stop event"
+
+    run_serve_in_process(monkeypatch, tmp_path, observe)
+    for n in names:
+        assert inside[n] is not before[n], f"{n} handler was not installed"
+        assert signal.getsignal(getattr(signal, n)) is before[n], f"{n} handler was not restored"
+
+
+@pytest.mark.skipif(IS_WINDOWS, reason="POSIX signals")
+@pytest.mark.parametrize("name", HANGUP_SIGNALS)
+def test_serve_leaves_an_ignored_hangup_or_quit_ignored(monkeypatch, tmp_path, name):
+    """`nohup` sets SIGHUP to ignore on purpose. Serve must not undo that."""
+    number = getattr(signal, name)
+    previous = signal.signal(number, signal.SIG_IGN)
+    seen = {}
+    try:
+        run_serve_in_process(monkeypatch, tmp_path,
+                             lambda stop_event: seen.update(inside=signal.getsignal(number)))
+        assert seen["inside"] == signal.SIG_IGN
+        assert signal.getsignal(number) == signal.SIG_IGN
+    finally:
+        signal.signal(number, previous)
+
+
+def test_serve_runs_on_a_platform_without_hangup_and_quit_signals(monkeypatch, tmp_path, default_hangup_dispositions):
+    for name in ("SIGHUP", "SIGQUIT"):
+        monkeypatch.delattr(signal, name, raising=False)
+    seen = {}
+
+    def observe(stop_event):
+        seen["term"] = signal.getsignal(signal.SIGTERM)
+
+    before = signal.getsignal(signal.SIGTERM)
+    run_serve_in_process(monkeypatch, tmp_path, observe)
+    assert seen["term"] is not before  # the handlers that exist everywhere are still installed
+    assert signal.getsignal(signal.SIGTERM) is before

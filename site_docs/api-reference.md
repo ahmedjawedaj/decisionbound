@@ -655,6 +655,17 @@ This is an *execution kernel*, not a generative coding agent. Providers can
 implement Planner.next_action, but the host always enforces allowlists, effects,
 step limits and observation caps independent of any model response.
 
+### `refusal`
+
+```python
+refusal(kind: type[BaseException], message: str) -> BaseException
+```
+
+Build ``kind(message)`` marked as a refusal written for the model.
+
+The message is fixed text with no host path, so a server may show it to a client.
+Anything not built here is treated as unvetted by the MCP server and replaced.
+
 ### `RepeatedCallError`
 
 The planner proposed the same tool call too many times in a row.
@@ -685,6 +696,20 @@ with marker-like runs neutralised and cut to ``limit`` characters. A note
 after the closing marker says when the content was cut, either here or by
 the loop's own cap (the loop stores JSON objects, so text that starts with ``{`` but is not valid JSON was cut). The stored
 observation, its hash and the event ledger are not changed by this.
+
+### `render_untrusted_text`
+
+```python
+render_untrusted_text(text: str, limit: int | None = None) -> str
+```
+
+Fence stored free text (a decision statement, an ADR excerpt) as data for a model.
+
+Marker-like runs are neutralised first, so the result always holds one opening and one
+closing marker, and the markers are the ones used for tool observations. With ``limit``
+the neutralised text is cut to that many characters and a note after the closing marker
+says so. The stored text is not changed.
+Use it only for the copy a model reads, never for stored or hashed records.
 
 ### `ToolAction`
 
@@ -755,6 +780,10 @@ repository_readonly_tools(root: Path, max_file_bytes: int = 512000) -> ToolRegis
 ```
 
 Create safe local file inspection/search tools for a single project root.
+
+Both tools refuse excluded directories and hidden names, secret file names (see ``_SECRET_NAMES`` and
+``_SECRET_PATTERNS``), noncanonical names (a trailing dot or space, or a colon, in any part) and
+symlinks. Names are compared without regard to case. Only a fixed set of text suffixes is served.
 
 This is a bounded inspection utility, not a secure sandbox against code
 executing with the same operating-system permissions as the process.
@@ -988,6 +1017,10 @@ This module imports without MCP installed; call ``create_mcp_server`` after
 to the initialized workspace supplied by its operator. The LLM does not get a
 free-form ``project_path`` tool parameter and cannot change workspace roots.
 
+### `WorkflowNotFound`
+
+The workflow ID is unknown to this project's state (a ``KeyError`` for compatibility).
+
 ### `create_mcp_server`
 
 ```python
@@ -1008,9 +1041,20 @@ Security:
     Local stdio inherits OS-user access; it is not a tenant authorization
     mechanism. Remote MCP transport requires separately implemented auth.
 
+Tool errors:
+    Every anticipated tool failure names what failed and one safe next step,
+    such as which read-only tool lists valid values or that the operator must
+    act in the local client. Messages never echo caller input, host paths,
+    tokens or diffs. With the official SDK installed they are raised as
+    ``ToolError`` subclasses, because the SDK shows the model only those
+    messages and reduces any other exception to ``Error executing tool <name>``.
+
 Raises:
     RuntimeError: The optional MCP v2 package is missing.
+    FileNotFoundError: The workspace has no readable project manifest. The
+        message adds a next step for the operator.
     PermissionError: The workspace identity does not match stored state.
+    ValueError: The project manifest is invalid.
 
 ### `serve_stdio`
 
@@ -1552,6 +1596,13 @@ crash the next coordinator kills what the old one left behind. On a host
 without strong containment every task is refused and blocked. The command
 stops with an error when the child cannot import the installed package.
 
+SIGINT, SIGTERM, SIGHUP (closed terminal) and SIGQUIT start the same orderly
+stop, which cancels contained workers and releases leadership. SIGHUP and
+SIGQUIT are handled only where the platform has them and only when the
+launcher did not set them to ignore, as nohup does. Previous handlers are
+restored on exit. If the output pipe or terminal is gone at the end, only the summary
+is lost. Any other print failure, such as a full disk, still fails the command.
+
 ### `workflow_reap_orphans`
 
 ```python
@@ -1787,6 +1838,14 @@ to_dict() -> dict
 
 Serialize a test receipt without storing raw test output.
 
+``image`` is the image reference the sandbox was given. ``image_digest`` is the ``sha256:``
+digest that reference pins, or empty when it is a mutable tag. ``daemon_endpoint`` is the
+``unix://`` daemon the container CLI was told to use, or ``default`` for its own default.
+The three keys are left out when empty, so receipts that carry none serialize and hash
+exactly as before. The three fields are in the receipt hash and in the CLI JSON output, but
+the persisted ledger events carry only the hash. ``daemon_endpoint`` is the configured intent
+and not the observed daemon.
+
 ### `CodingOutcome`
 
 Stable receipt for a bounded patch attempt.
@@ -1861,6 +1920,13 @@ checkout's tracked files. Interrupted runs leave records for manual cleanup.
 ### `WorkspaceError`
 
 A project cannot be safely isolated or an owned worktree cannot be cleaned.
+
+### `GitCommandError`
+
+The Git executable was missing, timed out or exited with an error.
+
+This separates "Git could not answer" from "Git answered and the checkout
+is not acceptable". The message never carries paths or Git's stderr.
 
 ### `worktree_git_dir`
 
@@ -2011,6 +2077,14 @@ The default test executor is an inert deterministic mock for CI and research.
 Real execution requires an explicitly authorized Docker-compatible daemon:
 no network, no privileges, explicit CPU/memory/PID and timeout ceilings.
 
+### `image_digest`
+
+```python
+image_digest(image: str) -> str
+```
+
+Return the ``sha256:`` digest an image reference pins, or an empty string for a mutable tag.
+
 ### `ScriptedTestRunner`
 
 Deterministic test fake; does not execute or certify user code.
@@ -2040,6 +2114,23 @@ socket; only the isolated worktree is mounted read/write. It may mutate
 that worktree, which the verifier detects after execution.
 A root caller is refused before contacting the daemon. On platforms without
 POSIX user IDs the container uses the fixed unprivileged ID 1000:1000.
+
+Daemon trust: the CLI gets a built environment, never the caller's. ``DOCKER_CONTEXT`` and
+``DOCKER_CONFIG`` are not passed on, and for the ``docker`` binary the context is pinned to
+``default``, so a context saved in the user's Docker config (``docker context use``) cannot move
+the tests to another daemon. A local ``unix://`` ``DOCKER_HOST`` is still honoured and any other
+``DOCKER_HOST`` is refused. The pin also moves a setup that picks its daemon only with ``docker
+context use`` (rootless Docker, colima, Docker Desktop, lima, remote contexts) to the default
+socket. Such a setup must set ``DOCKER_HOST=unix://<socket>``, which is honoured and not
+overridden. Every test receipt records the endpoint in ``daemon_endpoint``. It is the configured
+intent and not the observed daemon: the literal ``default`` or the ``DOCKER_HOST`` string, which
+is also recorded for ``podman`` although Podman ignores it.
+
+Image trust: the image is always run as given with ``--pull never``. Every test receipt records it in
+``image``, and ``image_digest`` holds its ``sha256:`` digest, or is empty for a mutable tag. With
+``require_digest=True``, or ``DBOUND_REQUIRE_IMAGE_DIGEST=1`` in the environment, a reference that
+does not pin a digest is refused. The argument can tighten the environment switch but never loosen it.
+The environment is read once, when the runner is constructed.
 
 #### `DockerTestRunner.run`
 
@@ -3096,6 +3187,19 @@ group (POSIX) or job object (Windows). Deadlines, cancellation, leadership loss
 and output floods end in a confirmed termination, or in an explicit
 ``ContainmentFailure`` that the journal turns into a blocked task.
 
+On POSIX, confirmed means the process group is empty and no descendant that the
+host saw outside the group is alive. The host watches the child's process tree
+while it runs and again before it kills it. A descendant seen outside the group
+is not killed, and the result is unconfirmed. A host that cannot list processes
+confirms nothing. A scan taken while the worker runs decides, so one failed scan
+followed by a good one does not block a task, but a scan taken after the leader
+exited cannot clear a failed one, since its children are already re-parented. Once the group is empty, a descendant
+that is still alive gets only a short grace before the result is unconfirmed. A
+descendant that left the group and was re-parented to init before the host looked
+is not visible, and neither is one born between two scans, so confirmed is not a
+proof of an empty tree. Legitimate daemonizing tools such as git fsmonitor,
+gpg-agent and ssh ControlMaster count as escapees and block the task.
+
 What this is not: a security sandbox. Descendants that call ``setsid`` or
 ``setpgid`` escape a POSIX group. Windows processes that break away from the job
 or start through WMI or a service escape the job. There is no filesystem,
@@ -3278,6 +3382,14 @@ POSIX sends SIGTERM to the group, waits up to ``grace_seconds`` for the
 group to empty, then SIGKILL. Windows kills the job immediately (there is
 no catchable signal), or falls back to ``taskkill /T /F``.
 
+#### `ContainedProcess.live_escapees`
+
+```python
+live_escapees() -> list[int]
+```
+
+Process ids of remembered descendants outside the group that still run.
+
 #### `ContainedProcess.close`
 
 ```python
@@ -3348,8 +3460,16 @@ under an older leadership generation (the owner then lost its fence). A tree
 is killed only when the live process at the recorded pid has the recorded
 start token, so a recycled pid is never signalled. If the leader is gone but
 its group is still alive, ownership cannot be verified: the row is marked
-``unconfirmed``, nothing is killed, and the task is blocked. The journal
-remains the only authority over task state.
+``unconfirmed``, nothing is killed, and the task is blocked. The same holds
+for a live process under a row with no recorded start token, because the
+identity could not be read at spawn. If the leader is alive and a descendant
+of it sits outside the group, the group is killed but that descendant is not,
+and the row is ``unconfirmed`` too. When the leader is already gone such a
+descendant cannot be seen at all. A row that names this host process, a
+process id below 2 or (POSIX) a group that is not the process's own is never
+signalled and is marked ``identity_mismatch``. Rows are not authenticated.
+See ``site_docs/worker-containment.md``. The journal remains the only
+authority over task state.
 
 #### `OrphanReaper.reap`
 
@@ -3540,6 +3660,14 @@ vetoes; the host's canonical integrity checks remain mandatory.
 ### `ReviewUnavailable`
 
 The workflow has no safe, unambiguous coding artifact to review.
+
+### `ReviewGitUnavailable`
+
+Git could not confirm the source commit or patch scope, so review is refused.
+
+Raised when Git is missing, times out, exits with an error or the
+repository is unreadable. Approval and export fail closed on it. The
+message is fixed and never carries paths, Git stderr or environment text.
 
 ### `ReviewConflict`
 

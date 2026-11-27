@@ -130,6 +130,18 @@ def _run_cli(argv: list[str], env: dict[str, str], timeout: float,
                       budget.total, timed_out, budget.over.is_set(), drained)
 
 
+# An image reference is pinned when it names content: ``name@sha256:<64 hex>`` or a bare ``sha256:<64 hex>``
+# image ID. A tag such as ``python:3.12`` can point to different content from one day to the next.
+_PINNED_IMAGE = re.compile(r'(?:[^\s@]+@)?(sha256:[a-f0-9]{64})')
+REQUIRE_DIGEST_ENV = 'DBOUND_REQUIRE_IMAGE_DIGEST'
+
+
+def image_digest(image: str) -> str:
+    """Return the ``sha256:`` digest an image reference pins, or an empty string for a mutable tag."""
+    match = _PINNED_IMAGE.fullmatch(image)
+    return match.group(1) if match else ''
+
+
 def _validate_command(command: tuple[str, ...], timeout_seconds: int) -> None:
     if not command or len(command) > 16 or not 1 <= timeout_seconds <= 600:
         raise ValueError('Invalid test command or timeout')
@@ -179,14 +191,34 @@ class DockerTestRunner(IsolatedTestRunner):
     that worktree, which the verifier detects after execution.
     A root caller is refused before contacting the daemon. On platforms without
     POSIX user IDs the container uses the fixed unprivileged ID 1000:1000.
+
+    Daemon trust: the CLI gets a built environment, never the caller's. ``DOCKER_CONTEXT`` and
+    ``DOCKER_CONFIG`` are not passed on, and for the ``docker`` binary the context is pinned to
+    ``default``, so a context saved in the user's Docker config (``docker context use``) cannot move
+    the tests to another daemon. A local ``unix://`` ``DOCKER_HOST`` is still honoured and any other
+    ``DOCKER_HOST`` is refused. The pin also moves a setup that picks its daemon only with ``docker
+    context use`` (rootless Docker, colima, Docker Desktop, lima, remote contexts) to the default
+    socket. Such a setup must set ``DOCKER_HOST=unix://<socket>``, which is honoured and not
+    overridden. Every test receipt records the endpoint in ``daemon_endpoint``. It is the configured
+    intent and not the observed daemon: the literal ``default`` or the ``DOCKER_HOST`` string, which
+    is also recorded for ``podman`` although Podman ignores it.
+
+    Image trust: the image is always run as given with ``--pull never``. Every test receipt records it in
+    ``image``, and ``image_digest`` holds its ``sha256:`` digest, or is empty for a mutable tag. With
+    ``require_digest=True``, or ``DBOUND_REQUIRE_IMAGE_DIGEST=1`` in the environment, a reference that
+    does not pin a digest is refused. The argument can tighten the environment switch but never loosen it.
+    The environment is read once, when the runner is constructed.
     """
 
     def __init__(self, image: str, *, docker_binary: str = 'docker',
-                 memory_mb: int = 512, cpus: float = 1.0, pids: int = 64):
+                 memory_mb: int = 512, cpus: float = 1.0, pids: int = 64, require_digest: bool = False):
         if (not image or any(c.isspace() for c in image) or image.startswith('-') or
                 not 128 <= memory_mb <= 4096 or not 0.1 <= cpus <= 4.0 or
                 not 8 <= pids <= 256 or docker_binary not in ('docker', 'podman')):
             raise ValueError('Invalid sandbox configuration')
+        self.require_digest = bool(require_digest) or os.environ.get(REQUIRE_DIGEST_ENV) == '1'
+        if self.require_digest and not image_digest(image):
+            raise ValueError('Strict mode needs an image pinned by sha256 digest, such as name@sha256:<64 hex>')
         self.image, self.binary = image, docker_binary
         self.memory_mb, self.cpus, self.pids = memory_mb, cpus, pids
 
@@ -234,6 +266,12 @@ class DockerTestRunner(IsolatedTestRunner):
                'HOME': str(Path.home())}
         if daemon:
             env['DOCKER_HOST'] = daemon
+        elif self.binary == 'docker':
+            # The CLI would otherwise follow the context saved in ~/.docker/config.json. DOCKER_HOST
+            # already outranks that context, so the pin is only needed when there is none.
+            env['DOCKER_CONTEXT'] = 'default'
+        identity = dict(image=self.image, image_digest=image_digest(self.image),
+                        daemon_endpoint=daemon or 'default')
         started = time.monotonic()
         try:
             cli = _run_cli(argv, env, timeout_seconds + 5)
@@ -262,8 +300,8 @@ class DockerTestRunner(IsolatedTestRunner):
                 raise RuntimeError('Sandbox stopped and container cleanup failed')
             duration = int((time.monotonic() - started) * 1000)
             return TestOutcome('docker', command, None, cli.timed_out, duration, cli.stdout_sha256,
-                               cli.stderr_sha256, cli.over_cap or cli.total_bytes > 0)
+                               cli.stderr_sha256, cli.over_cap or cli.total_bytes > 0, **identity)
         duration = int((time.monotonic() - started) * 1000)
         return TestOutcome('docker', command, cli.returncode, False, duration,
                            cli.stdout_sha256, cli.stderr_sha256,
-                           cli.total_bytes > OUTPUT_FLAG_BYTES or not cli.drained)
+                           cli.total_bytes > OUTPUT_FLAG_BYTES or not cli.drained, **identity)

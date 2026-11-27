@@ -6,6 +6,19 @@ group (POSIX) or job object (Windows). Deadlines, cancellation, leadership loss
 and output floods end in a confirmed termination, or in an explicit
 ``ContainmentFailure`` that the journal turns into a blocked task.
 
+On POSIX, confirmed means the process group is empty and no descendant that the
+host saw outside the group is alive. The host watches the child's process tree
+while it runs and again before it kills it. A descendant seen outside the group
+is not killed, and the result is unconfirmed. A host that cannot list processes
+confirms nothing. A scan taken while the worker runs decides, so one failed scan
+followed by a good one does not block a task, but a scan taken after the leader
+exited cannot clear a failed one, since its children are already re-parented. Once the group is empty, a descendant
+that is still alive gets only a short grace before the result is unconfirmed. A
+descendant that left the group and was re-parented to init before the host looked
+is not visible, and neither is one born between two scans, so confirmed is not a
+proof of an empty tree. Legitimate daemonizing tools such as git fsmonitor,
+gpg-agent and ssh ControlMaster count as escapees and block the task.
+
 What this is not: a security sandbox. Descendants that call ``setsid`` or
 ``setpgid`` escape a POSIX group. Windows processes that break away from the job
 or start through WMI or a service escape the job. There is no filesystem,
@@ -43,8 +56,14 @@ _STRONG_LEVELS = frozenset({"posix_session", "windows_job"})
 _LIMIT_NAMES = ("max_cpu_seconds", "max_memory_mib", "max_open_files", "max_processes")
 _CONFIRM_SECONDS = 5.0
 _JOB_NAME_PREFIX = "Local\\dbound-"
-_CONTAINMENT_ID = re.compile(r"[A-Za-z0-9_]{1,64}")
+# The one id shape the registry issues: "cp_" plus a random uuid4 in hex. A job object name is
+# built only from this shape, so it always carries 122 random bits from the operating system.
+_CONTAINMENT_ID = re.compile(r"cp_[0-9a-f]{32}")
+_ERROR_ALREADY_EXISTS = 183
 _POLL_SECONDS = 0.02
+_ESCAPE_SCAN_SECONDS = 0.25
+_PS_TIMEOUT_SECONDS = 2.0
+_ESCAPEE_GRACE_SECONDS = 0.3
 
 
 class ContainmentError(RuntimeError):
@@ -308,6 +327,69 @@ def _ps_group_states(pgid: int) -> list[str] | None:
     return states
 
 
+def _process_table() -> dict[int, tuple[int, int, str]] | None:
+    """Map every pid to ``(ppid, pgid, state)``, or None when the host cannot list processes.
+
+    The cost grows with the number of processes on the host. The ``ps`` fallback
+    is cut off after a short timeout, which counts as a failed scan.
+    """
+    table: dict[int, tuple[int, int, str]] = {}
+    if sys.platform.startswith("linux"):
+        try:
+            names = os.listdir("/proc")
+        except OSError:
+            return None
+        for name in names:
+            fields = _linux_stat_fields(int(name)) if name.isdigit() else None
+            if fields and len(fields) > 2:
+                table[int(name)] = (int(fields[1]), int(fields[2]), fields[0])
+        return table
+    try:
+        done = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,pgid=,stat="], capture_output=True, text=True,
+                              timeout=_PS_TIMEOUT_SECONDS, env={"LC_ALL": "C", "PATH": os.environ.get("PATH", "/usr/bin:/bin")})
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if done.returncode != 0:
+        return None
+    for line in done.stdout.splitlines():
+        parts = line.split()
+        if len(parts) >= 4 and all(part.isdigit() for part in parts[:3]):
+            table[int(parts[0])] = (int(parts[1]), int(parts[2]), parts[3])
+    return table or None
+
+
+def _escaped_descendants(root_pid: int, pgid: int) -> list[ProcessIdentity] | None:
+    """Live descendants of ``root_pid`` that are outside process group ``pgid``.
+
+    A group kill cannot reach these. None when the host cannot list processes.
+    Only descendants still linked to ``root_pid`` through live parents are
+    visible. One that was already re-parented to init is not.
+    """
+    table = _process_table()
+    if table is None:
+        return None
+    children: dict[int, list[int]] = {}
+    for pid, (ppid, _group, _state) in table.items():
+        children.setdefault(ppid, []).append(pid)
+    found: list[ProcessIdentity] = []
+    seen, pending = {root_pid}, [root_pid]
+    while pending:
+        for pid in children.get(pending.pop(), ()):
+            if pid in seen:
+                continue
+            seen.add(pid)
+            pending.append(pid)
+            identity = process_identity(pid) if table[pid][1] != pgid else None
+            if identity is not None:
+                found.append(identity)
+    return found
+
+
+def _any_alive(identities: Sequence[ProcessIdentity]) -> bool:
+    """True when any of these processes still runs under the identity that was recorded."""
+    return any(_identity_matches(item.pid, item.start_token) for item in identities)
+
+
 def _signal_group(pgid: int, sig: int) -> bool:
     """Signal a whole process group. Returns False when the group no longer exists."""
     try:
@@ -378,7 +460,14 @@ def probe_capabilities() -> ContainmentCapabilities:
 
 
 def _job_name(containment_id: str) -> str:
-    """Name of the job object for one contained worker, in the session-local namespace."""
+    """Name of the job object for one contained worker, in the session-local namespace.
+
+    The name is the prefix plus the registry's random containment id, which is what the
+    orphan reaper looks up later. A name another process could guess in advance can be
+    created first by that process, so any other id shape raises ``ValueError``.
+    """
+    if not isinstance(containment_id, str) or _CONTAINMENT_ID.fullmatch(containment_id) is None:
+        raise ValueError("Containment id is not a registry id, so it cannot name a job object")
     return _JOB_NAME_PREFIX + containment_id
 
 
@@ -386,7 +475,8 @@ class _WindowsJob:
     """Windows job object with kill-on-close, created through ctypes.
 
     Written from the Win32 documentation. It could not be executed on the
-    Linux machine where it was authored.
+    Linux machine where it was authored, and the name and already-exists logic
+    below is covered by fake kernel32 tests only until the Windows CI jobs run.
     """
 
     def __init__(self, handle: Any, kernel: Any):
@@ -418,9 +508,19 @@ class _WindowsJob:
         kernel.CreateJobObjectW.restype = wintypes.HANDLE
         kernel.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
         kernel.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+        # No security attributes: the handle is not inheritable by child processes.
+        # CreateJobObjectW on an existing name succeeds and returns a handle to that object with
+        # ERROR_ALREADY_EXISTS, so the error is cleared first and read right after the call.
+        ctypes.set_last_error(0)
         handle = kernel.CreateJobObjectW(None, name)
+        error = ctypes.get_last_error()
         if not handle:
-            raise ctypes.WinError(ctypes.get_last_error())
+            raise ctypes.WinError(error)
+        if name is not None and error == _ERROR_ALREADY_EXISTS:
+            # Not ours: apply nothing to it and drop our reference. Fail closed.
+            kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+            kernel.CloseHandle(handle)
+            raise OSError(error, "Windows job object name already exists")
         info = ExtendedLimits()
         flags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
         if limits.max_processes:
@@ -522,6 +622,9 @@ class ContainedProcess:
         self._job = job
         self._returncode: int | None = None
         self._confirmed: bool | None = None
+        self._escaped: dict[int, ProcessIdentity] = {}
+        self._tree_unknown = False
+        self._next_scan = 0.0
         self._buffer = bytearray()
         self._limit = 0
         self._overflow = threading.Event()
@@ -547,7 +650,10 @@ class ContainedProcess:
         if not _IS_NT:
             return cls(subprocess.Popen(command, start_new_session=True, **pipes),
                        level="posix_session", job=None)
-        name = _job_name(containment_id or uuid.uuid4().hex)
+        try:
+            name = _job_name("cp_" + uuid.uuid4().hex if containment_id is None else containment_id)
+        except ValueError:
+            raise ContainmentFailure("Windows job object name needs a registry containment id") from None
         create_flags = 0x00000200 | 0x08000000  # CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW
         job: _WindowsJob | None
         try:
@@ -655,10 +761,14 @@ class ContainedProcess:
         if self._returncode is not None:
             return self._returncode
         if not self._leader_exited():
+            if not _IS_NT and time.monotonic() >= self._next_scan:
+                self._next_scan = time.monotonic() + _ESCAPE_SCAN_SECONDS
+                self._watch_tree()
             return None
         if _IS_NT:
             self._windows_kill()
         else:
+            self._watch_tree()  # finds only escapees below live group members, and cannot clear an unknown tree
             _signal_group(self.pgid, signal.SIGKILL)
         self._reap_and_confirm()
         return self._returncode
@@ -675,6 +785,7 @@ class ContainedProcess:
         if _IS_NT:
             self._windows_kill()
         else:
+            self._watch_tree()
             _signal_group(self.pgid, signal.SIGTERM)
             end = time.monotonic() + max(0.0, grace_seconds)
             while time.monotonic() < end:
@@ -687,6 +798,28 @@ class ContainedProcess:
             _signal_group(self.pgid, signal.SIGKILL)
         return self._reap_and_confirm()
 
+    def live_escapees(self) -> list[int]:
+        """Process ids of remembered descendants outside the group that still run."""
+        return sorted(item.pid for item in self._escaped.values() if _identity_matches(item.pid, item.start_token))
+
+    def _watch_tree(self) -> None:
+        """Remember live descendants outside the group, which a group kill cannot reach.
+
+        A failed scan marks the tree unknown. Only a scan taken while the leader is alive
+        can clear that. Once the leader has exited its children are already re-parented
+        to init, so a later scan cannot see an escapee that left through the leader and
+        must never vouch for the tree.
+        """
+        leader_alive = not self._leader_exited()
+        found = _escaped_descendants(self.pid, self.pgid)
+        if found is None:
+            self._tree_unknown = True
+            return
+        if leader_alive and not self._leader_exited():
+            self._tree_unknown = False
+        for item in found:
+            self._escaped[item.pid] = item
+
     def _windows_kill(self) -> None:
         """Kill the Windows tree through the job, or ``taskkill`` when there is no job."""
         if self._job is not None:
@@ -695,7 +828,14 @@ class ContainedProcess:
             subprocess.run(["taskkill", "/PID", str(self.pid), "/T", "/F"], capture_output=True)
 
     def _reap_and_confirm(self) -> bool:
-        """Reap the leader, then wait (bounded) for the group or job to be empty."""
+        """Reap the leader, then wait (bounded) for the group or job to be empty.
+
+        On POSIX, descendants seen outside the group must be dead too, and a host
+        that cannot list processes cannot confirm anything. The group may take up to
+        the confirm window to empty. A descendant outside the group is never killed
+        here, so one that is still alive once the group is empty gets only a short
+        grace before the result is unconfirmed.
+        """
         end = time.monotonic() + _CONFIRM_SECONDS
         while self._returncode is None:
             try:
@@ -704,12 +844,25 @@ class ContainedProcess:
                 if time.monotonic() > end:
                     self._confirmed = False
                     return False
+        if self._tree_unknown:
+            self._confirmed = False  # the host could not list processes, so it cannot show the tree is gone
+            return False
+        escapee_end: float | None = None
         while True:
             if _IS_NT:
                 empty = (self._job.active_processes() == 0 if self._job is not None
                          else process_identity(self.pid) is None)
+            elif _group_alive(self.pgid, leader_reaped=True):
+                empty = False
+            elif not _any_alive(list(self._escaped.values())):
+                empty = True
             else:
-                empty = not _group_alive(self.pgid, leader_reaped=True)
+                empty = False
+                if escapee_end is None:
+                    escapee_end = time.monotonic() + _ESCAPEE_GRACE_SECONDS
+                if time.monotonic() > escapee_end:
+                    self._confirmed = False
+                    return False
             if empty:
                 self._confirmed = True
                 return True
@@ -841,8 +994,16 @@ class OrphanReaper:
     is killed only when the live process at the recorded pid has the recorded
     start token, so a recycled pid is never signalled. If the leader is gone but
     its group is still alive, ownership cannot be verified: the row is marked
-    ``unconfirmed``, nothing is killed, and the task is blocked. The journal
-    remains the only authority over task state.
+    ``unconfirmed``, nothing is killed, and the task is blocked. The same holds
+    for a live process under a row with no recorded start token, because the
+    identity could not be read at spawn. If the leader is alive and a descendant
+    of it sits outside the group, the group is killed but that descendant is not,
+    and the row is ``unconfirmed`` too. When the leader is already gone such a
+    descendant cannot be seen at all. A row that names this host process, a
+    process id below 2 or (POSIX) a group that is not the process's own is never
+    signalled and is marked ``identity_mismatch``. Rows are not authenticated.
+    See ``site_docs/worker-containment.md``. The journal remains the only
+    authority over task state.
     """
 
     def __init__(self, registry: ProcessRegistry, journal: WorkflowJournal, *,
@@ -931,9 +1092,14 @@ class OrphanReaper:
         """Decide and carry out the action for one orphan row, then return its new state."""
         if row["pid"] is None:
             return "unconfirmed"  # crashed between intent and spawn record: cannot know
-        if not _IS_NT and (type(row["pid"]) is not int or type(row["pgid"]) is not int or row["pid"] <= 1 or
-                           row["pgid"] != row["pid"] or row["pid"] == os.getpid() or row["pgid"] == os.getpgrp()):
-            return "identity_mismatch"  # never signal a group we did not start; a stored row is not trusted
+        if (type(row["pid"]) is not int or row["pid"] <= 1 or row["pid"] == os.getpid() or
+                (not _IS_NT and (type(row["pgid"]) is not int or row["pgid"] != row["pid"] or
+                                 row["pgid"] == os.getpgrp()))):
+            return "identity_mismatch"  # never signal a pid or group we did not start, a stored row is not trusted
+        if not row["start_token"] and process_identity(row["pid"]) is not None:
+            # The identity was unreadable at spawn, so a live process here cannot be matched to this
+            # row. It may be the worker, so send no signal and block the task. This is not a mismatch.
+            return "unconfirmed"
         if _IS_NT:
             return self._examine_windows(row)
         live = process_identity(row["pid"])
@@ -946,9 +1112,11 @@ class OrphanReaper:
                 return "identity_mismatch"
         except ProcessLookupError:
             return "gone"
+        escaped = _escaped_descendants(row["pid"], row["pgid"])
         try:
             if not _signal_group(row["pgid"], signal.SIGTERM):
-                return "gone"
+                # The group vanished, but a descendant outside it may still run.
+                return "unconfirmed" if escaped is None or _any_alive(escaped) else "gone"
             end = time.monotonic() + max(0.0, self.term_grace_seconds)
             while time.monotonic() < end and _group_alive(row["pgid"], leader_reaped=False):
                 time.sleep(_POLL_SECONDS)
@@ -960,6 +1128,8 @@ class OrphanReaper:
             if time.monotonic() > end:
                 return "unconfirmed"
             time.sleep(_POLL_SECONDS)
+        if escaped is None or _any_alive(escaped):
+            return "unconfirmed"  # a descendant outside the group may still run
         return "terminated"
 
 
@@ -1148,7 +1318,9 @@ class ContainedWorker(WorkflowWorker):
         except Exception:
             pass
         if not confirmed:
-            raise ContainmentFailure("Worker process tree termination could not be confirmed")
+            left = proc.live_escapees()
+            detail = f" (still running outside the process group: pid {', '.join(map(str, left[:5]))})" if left else ""
+            raise ContainmentFailure("Worker process tree termination could not be confirmed" + detail)
         if outcome == "cancel" or control.cancel.is_set():
             raise WorkerCancelled(control.reason or "cancelled")
         if outcome == "deadline":

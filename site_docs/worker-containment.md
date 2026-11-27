@@ -16,8 +16,9 @@
 | The worker prints a receipt while it is being cancelled | The receipt is discarded. The task stays cancelled. |
 | The worker prints more than `max_output_bytes` | The tree is killed and the task is quarantined as `invalid_receipt`. |
 | The coordinator loses leadership | Workers are cancelled at the next tick. |
+| The coordinator gets `SIGTERM`, `SIGINT`, `SIGHUP` or `SIGQUIT` | New dispatch stops, workers are cancelled after the stop grace and leadership is released. (`SIGHUP` and `SIGQUIT` exist on POSIX only.) |
 | The coordinator is killed with `SIGKILL` | Workers keep running until the next coordinator starts. It reaps them before it dispatches anything. |
-| Termination cannot be proven | The task is quarantined as `containment_failed` and never retried, even for read-only kinds. |
+| Termination cannot be proven, including a POSIX descendant seen outside the process group that is still alive | The task is quarantined as `containment_failed` and never retried, even for read-only kinds. |
 | A `code` task on a host with only weak containment | The task is refused before anything is spawned. |
 
 ## Using it
@@ -85,9 +86,9 @@ A worker that returns after its claim was lost cannot finish the task, because `
 
 ## Process model per operating system
 
-**POSIX (Linux and macOS executed in CI).** Every spawn goes through a small stdlib-only launcher that applies resource limits and then `exec`s your argv in a new session. This avoids `preexec_fn`, which is unsafe in a threaded coordinator. Termination is `SIGTERM` to the process group, a grace period, then `SIGKILL`, then confirmation that no live process remains in the group. The worker's exit is observed without reaping it, so the group is killed before the process id can be recycled. Where `os.waitid` is missing (macOS), the leader is reaped first, which leaves a tiny recycling window.
+**POSIX (Linux and macOS executed in CI).** Every spawn goes through a small stdlib-only launcher that applies resource limits and then `exec`s your argv in a new session. This avoids `preexec_fn`, which is unsafe in a threaded coordinator. Termination is `SIGTERM` to the process group, a grace period, then `SIGKILL`, then confirmation that no live process remains in the group. While the worker runs, the host also lists its descendants about four times a second and once more just before it kills them, and remembers the ones outside the group. Those are not killed. If any of them is still alive at confirmation, or the host cannot list processes, the result is `unconfirmed` and the task is blocked. This is a best effort check, not tracking by the kernel. The worker's exit is observed without reaping it, so the group is killed before the process id can be recycled. Where `os.waitid` is missing (macOS), the leader is reaped first, which leaves a tiny recycling window.
 
-**Windows (executed in CI, except the new reaper job check).** A job object named `Local\dbound-<id>` with kill-on-close. The launcher waits on a one byte gate on stdin while the parent assigns it to the job, so no descendant is born outside the job. Termination is `TerminateJobObject`, which has no graceful phase. If a job cannot be created or assigned, the fallback is `taskkill /PID /T /F`, reported as `windows_tree_best_effort`. That fallback misses re-parented descendants, so it is refused for `code` tasks and whenever `require_strong` is true.
+**Windows (executed in CI, except the new reaper job check).** A job object named `Local\dbound-<id>` with kill-on-close. The id is the registry's random containment id (`cp_` plus 32 hex digits from a random uuid4), and no other shape is accepted as a job name, so the name cannot be guessed ahead of time. Creation fails closed if the name already exists: `CreateJobObjectW` would return a handle to the existing object with `ERROR_ALREADY_EXISTS`, which the host now checks and refuses before changing anything, so a worker is never placed in a job the host did not create. The job handle is not inheritable. The launcher waits on a one byte gate on stdin while the parent assigns it to the job, so no descendant is born outside the job. Termination is `TerminateJobObject`, which has no graceful phase. If a job cannot be created or assigned, the fallback is `taskkill /PID /T /F`, reported as `windows_tree_best_effort`. That fallback misses re-parented descendants, so it is refused for `code` tasks and whenever `require_strong` is true.
 
 ## Resource limits
 
@@ -113,7 +114,10 @@ When a coordinator acquires leadership it runs the reaper before its first dispa
 |---|---|---|
 | Live process, same start token | Kill the tree | `terminated` |
 | Live process, different start token | Send no signal | `identity_mismatch` |
+| Live process, row has no start token (identity unreadable at spawn) | Send no signal, block the task | `unconfirmed` |
+| Row names this host process or a process id below 2 (any OS) | Send no signal | `identity_mismatch` |
 | Leader gone, group empty | Nothing to do | `gone` |
+| Live process, same start token, but a descendant outside the group is still alive after the kill (POSIX) | Kill the group, block the task | `unconfirmed` |
 | Leader gone, group still alive (POSIX) | Send no signal, block the task | `unconfirmed` |
 | Crash between intent and spawn | Block the task | `unconfirmed` |
 | Windows `windows_job` row, job still exists | Terminate the job, confirm it is empty | `terminated`, or `unconfirmed` if it never empties |
@@ -125,7 +129,8 @@ The reaper never changes task state except to block an unconfirmed task. The jou
 
 ## What is not guaranteed
 
-- A POSIX descendant that calls `setsid` or `setpgid` escapes the group.
+- A POSIX descendant that calls `setsid` or `setpgid` escapes the group and is not killed. The host reports `unconfirmed` when it saw that descendant outside the group while a live parent still linked it to the worker. One that left the group and was re-parented to init before the host looked is not seen, so a confirmed result on POSIX does not prove the tree is empty. After a leader that is already gone, the reaper cannot see escaped descendants at all.
+- The same blind spots apply to the descendant check. A subreaper, or a container whose pid 1 is the supervisor, re-parents orphans to the supervisor and hides escapees the same way. A double fork daemon born between two scans (the scan runs every 0.25 s) is not seen. An escapee hidden by `hidepid=2` or owned by a different user may be invisible. A failed scan makes the result unconfirmed unless a later scan, the last one before the kill, succeeds. Legitimate daemonizing tools such as git fsmonitor, gpg-agent and ssh ControlMaster now count as escapees and block the task. This is a best effort check and not proof. Scan cost grows with the number of processes on the host, and the `ps` fallback used off Linux is cut off after 2 s. A descendant that is still alive once the group is empty gets a grace of 0.3 s, then the result is `unconfirmed`, so the supervisor loop is not held for the full confirm window.
 - A Windows process that breaks away from the job, or starts through WMI or a service, escapes the job.
 - The `taskkill` fallback misses re-parented descendants.
 - There is no filesystem, network, credential or syscall isolation. No cgroups, namespaces, seccomp or AppContainer. Use the [Docker coding sandbox](sandboxing.md) for that.
@@ -133,12 +138,14 @@ The reaper never changes task state except to block an unconfirmed task. The jou
 - A crash between spawn and the pid record can leave an unrecorded process on POSIX. Windows is covered by job close.
 - Existing in-process workers (`PreparationWorker`, `CodingRepairWorker`) were not converted. They are still not killable.
 - On Windows, a `windows_job` orphan row is settled through the named job object when that job can still be opened (open by name, terminate, mark `terminated` only when the job reports no active processes). When no job can be opened, the earlier identity check and `taskkill` fallback apply unchanged. The decision logic and the `OpenJobObjectW` call shape are unit tested with fakes on every OS. The real Windows execution of that new check is **unverified** until a windows-latest run reports `test_open_job_object_on_a_real_windows_host`. Rows at `windows_tree_best_effort` still use `taskkill` by process id, which misses descendants that left the tree.
+- The job object name is not a secret and not an access control. Another process of the same Windows user can still list session objects and open a job by name. The random name only stops blind pre-creation and guessing. The already-exists check, the name shape and the non-inheritable handle are unit tested with a fake kernel32 on every OS and were **not run on Windows** by their author. The Windows CI jobs are the first real evidence, and the caveat that the macOS and Windows paths are unverified still stands.
 - On Windows, the CPU time limit and memory limit are enforced by the job object, but there is no open file limit.
-- A descendant that escapes the group and keeps the worker's stdout open is not detected. The run can finish while that process lives on.
+- A descendant that escapes the group and keeps the worker's stdout open, but is not seen outside the group as described above, is not detected. The run can finish while that process lives on.
 - `RLIMIT_CPU` and `RLIMIT_AS` apply per process, not to the whole tree.
 - A `WorkflowSupervisor` used without the coordinator never reaps orphans. Call `dbound workflow reap-orphans` or run the coordinator.
 - On hosts without `ps`-grade start times (the macOS `ps` fallback) the identity token has one second resolution.
 - The registry table is never pruned.
+- Registry rows are not authenticated. The database file is created with owner-only permissions, and the reaper only signals a process whose start token, process id and group agree with the row (a row whose process id is not a plain integer is refused on both platforms, and the owner-only permission is a POSIX rule only), but a writer of the file who can read another process's start token can still choose which of that user's own processes the reaper ends. A per-row signature would not change this while the key lives in the same user's state directory, and the journal that decides task state is equally unsigned.
 - Cancelling a worker discards its receipt. A cancel induced `WorkerCancelled` does not emit a `late_result_rejected` event.
 - A supervisor error cancels running workers, which are then killed. The lease must exceed the SQLite busy timeout, otherwise a blocked heartbeat can cost a worker its lease.
 - A host that ignores `SIGCHLD` is unsupported.
