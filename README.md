@@ -8,7 +8,7 @@
 [![Docs](https://img.shields.io/github/actions/workflow/status/ahmedjawedaj/decisionbound/pages.yml?branch=main&label=Docs)](https://ahmedjawedaj.github.io/decisionbound/)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue)](pyproject.toml)
 [![Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
-[![Status: alpha](https://img.shields.io/badge/Status-alpha%200.13.0a1-orange)](CHANGELOG.md)
+[![Status: alpha](https://img.shields.io/badge/Status-alpha%200.13.0a2-orange)](CHANGELOG.md)
 [![Cite](https://img.shields.io/badge/Cite-CITATION.cff-6f42c1)](#citation)
 
 [Documentation](https://ahmedjawedaj.github.io/decisionbound/) · [Quickstart](https://ahmedjawedaj.github.io/decisionbound/getting-started.html) · [Interactive concept demo](https://ahmedjawedaj.github.io/decisionbound/concept/) · [CarryBench](benchmarks/carrybench/README.md) · [Roadmap](ROADMAP.md) · [Issues](https://github.com/ahmedjawedaj/decisionbound/issues)
@@ -17,7 +17,7 @@ DecisionBound is a local-first Python library and CLI for one narrow question: *
 
 It is for developers building or running coding agents who want decisions to carry authority, evidence and limits, and for researchers studying when remembered decisions should not transfer. It is not an agent, a model, a code generator or a hosted service. The default path makes no model call, needs no account or API key and no network request.
 
-> **Experimental alpha, version `0.13.0a1`.** The commands below work as shown. The transfer policy is a conservative rule set and has not been shown to beat simple baselines (see [Status](#status-and-evidence)). Nothing here is production certified or independently security reviewed. Use the source installation below. Published packages are listed on [PyPI](https://pypi.org/project/decisionbound/) when available. There is no editor Marketplace release.
+> **Experimental alpha, version `0.13.0a2`.** The commands below work as shown. The transfer policy is a conservative rule set and has not been shown to beat simple baselines (see [Status](#status-and-evidence)). Nothing here is production certified or independently security reviewed. Use the source installation below. Published packages are listed on [PyPI](https://pypi.org/project/decisionbound/) when available. There is no editor Marketplace release.
 
 ## Install
 
@@ -231,7 +231,7 @@ If you use the software, cite the version or commit using [CITATION.cff](CITATIO
   author  = {Jawed, Ahmed},
   title   = {{DecisionBound}: Evidence-grounded engineering judgment for {AI} agents},
   year    = {2026},
-  version = {0.13.0a1},
+  version = {0.13.0a2},
   license = {Apache-2.0},
   url     = {https://github.com/ahmedjawedaj/decisionbound},
   note    = {Experimental alpha. Please also record the commit you used.}

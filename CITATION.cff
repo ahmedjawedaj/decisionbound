@@ -7,7 +7,7 @@ authors:
     given-names: Ahmed
 repository-code: "https://github.com/ahmedjawedaj/decisionbound"
 url: "https://ahmedjawedaj.github.io/decisionbound/"
-version: 0.13.0a1
+version: 0.13.0a2
 license: Apache-2.0
 abstract: "An experimental local-first Python SDK and CLI for provenance-bearing engineering decisions, conservative cross-repository transfer, bounded agent workflows and independently checked evidence."
 keywords:
