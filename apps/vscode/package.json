@@ -2,7 +2,7 @@
   "name": "decisionbound-local",
   "displayName": "DecisionBound Local",
   "description": "Read-only local workflows, evidence, and approvals across the DecisionBound CLI and web runtime",
-  "version": "0.13.0-alpha.1",
+  "version": "0.13.0-alpha.2",
   "publisher": "decisionbound-local",
   "private": true,
   "engines": {
