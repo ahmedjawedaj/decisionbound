@@ -57,7 +57,7 @@ jobs:
       - name: Verify reproducible release packages
         run: python scripts/release_roundtrip.py
       - name: Retain candidate artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: verified-wheel
           path: dist/*.whl
