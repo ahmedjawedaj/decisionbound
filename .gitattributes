@@ -1,0 +1,3 @@
+# Keep hook scripts on LF line endings, because Git for Windows would otherwise
+# convert them to CRLF and sh would fail on them.
+.githooks/* text eol=lf

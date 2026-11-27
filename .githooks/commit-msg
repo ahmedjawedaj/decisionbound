@@ -1,0 +1,6 @@
+#!/bin/sh
+# Reject a Claude or Anthropic attribution before the commit exists.
+# Installed only when you run: python scripts/install_hooks.py
+. "$(dirname "$0")/find-python.sh"
+root=$(git rev-parse --show-toplevel) || exit 1
+exec $PYTHON_CMD "$root/scripts/check_commit_message.py" "$1"
