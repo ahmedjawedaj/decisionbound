@@ -7,9 +7,14 @@ message names the step and says what to run to fix it. The steps are:
 * publication: ``scripts/check_publication.py``
 * docs: ``scripts/check_docs.py``
 * api-reference: regenerate ``site_docs/api-reference.md`` with
-  ``scripts/generate_api_docs.py`` and fail when it differs from HEAD
+  ``scripts/generate_api_docs.py`` and fail when it differs from HEAD. It
+  refuses to run while ``src/`` or the generator has uncommitted changes,
+  because the result would not describe what is committed
 * attribution: ``scripts/check_attribution.py`` over the commits that are not
   yet on ``origin/main``
+
+The preflight is not a copy of CI. It does not run pytest, ``build_site.py``,
+``verify_docs.py`` or the pull request title and body check.
 
 Everything is read-only except the api-reference step, which rewrites
 ``site_docs/api-reference.md``. When that file drifts, the regenerated file is
@@ -20,6 +25,7 @@ Options:
   --only NAME  run only the named step, can be repeated
   --base REV   the revision the pending commits start after (default: the
                merge base with origin/main, then main)
+  --head REV   the commit to check instead of HEAD (the pre-push hook uses it)
   --list       print the step names and exit
 
 Exit status is 0 when every selected step passes, 1 when a step fails and 2
@@ -76,6 +82,12 @@ def api_reference(_args: argparse.Namespace) -> Outcome:
     """Regenerate the API reference in place and compare it with HEAD."""
     fix = (f'Run python scripts/generate_api_docs.py, then commit {API_REFERENCE}. '
            'If it refuses, add the missing docstrings it lists.')
+    code, dirty = run_process(['git', 'status', '--porcelain', '--', 'src', 'scripts/generate_api_docs.py'])
+    if code == 0 and dirty.strip():
+        return Outcome(False, 'These files have uncommitted changes, so the regenerated reference would '
+                       f'not describe what is committed:\n{dirty}',
+                       'Commit or stash the changes in src/ and scripts/generate_api_docs.py, then run '
+                       'the preflight again.')
     code, output = run_process([sys.executable, 'scripts/generate_api_docs.py'])
     if code != 0:
         return Outcome(False, output, fix)
@@ -94,12 +106,12 @@ def api_reference(_args: argparse.Namespace) -> Outcome:
     return Outcome(False, output, 'Run the preflight inside a git checkout that has at least one commit.')
 
 
-def find_base(override: str | None) -> str | None:
+def find_base(override: str | None, head: str = 'HEAD') -> str | None:
     """Return the revision after which commits count as pending, or None."""
     if override:
         return override
     for ref in ('origin/main', 'main'):
-        code, output = run_process(['git', 'merge-base', 'HEAD', ref])
+        code, output = run_process(['git', 'merge-base', head, ref])
         if code == 0 and output.strip():
             return output.strip()
     return None
@@ -107,14 +119,15 @@ def find_base(override: str | None) -> str | None:
 
 def attribution(args: argparse.Namespace) -> Outcome:
     """Run the real attribution check over base..HEAD through its own CLI."""
-    base = find_base(args.base)
+    code, head = run_process(['git', 'rev-parse', '--verify', f'{args.head or "HEAD"}^{{commit}}'])
+    if code != 0:
+        return Outcome(False, head, 'Run the preflight inside a git checkout that has at least one commit, '
+                       'and give --head a commit that exists.')
+    base = find_base(args.base, head.strip())
     if base is None:
         return Outcome(False, 'Could not find origin/main or main to start the commit range.\n',
-                       'Pass the revision your commits start after, for example: '
-                       'python scripts/preflight.py --base origin/main')
-    code, head = run_process(['git', 'rev-parse', 'HEAD'])
-    if code != 0:
-        return Outcome(False, head, 'Run the preflight inside a git checkout that has at least one commit.')
+                       'Fetch it with: git fetch origin main. Or pass the revision your commits start '
+                       'after, for example: python scripts/preflight.py --base origin/main')
     env = {k: v for k, v in os.environ.items() if k not in ('PR_TITLE', 'PR_BODY', 'PR_AUTHOR')}
     env['BASE_SHA'], env['HEAD_SHA'] = base, head.strip()
     code, output = run_process([sys.executable, 'scripts/check_attribution.py'], env)
@@ -148,6 +161,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--fast', action='store_true', help='skip the slow steps')
     parser.add_argument('--only', action='append', metavar='NAME', help='run only this step, can be repeated')
     parser.add_argument('--base', help='revision the pending commits start after')
+    parser.add_argument('--head', help='commit to check instead of HEAD')
     parser.add_argument('--list', action='store_true', help='print the step names and exit')
     args = parser.parse_args(argv)
     names = [step.name for step in STEPS]

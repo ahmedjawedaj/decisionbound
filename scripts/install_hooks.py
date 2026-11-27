@@ -4,7 +4,11 @@
 Nothing sets ``core.hooksPath`` except this script, and only when you run it.
 It changes the local repository config only, never the global one. It will not
 replace a different ``core.hooksPath`` you already have unless you pass
-``--force``, and ``--uninstall`` removes the setting only when it points at
+``--force``. Setting ``core.hooksPath`` also switches off every hook in
+``.git/hooks``, so the installer refuses while that folder holds a hook of
+yours or while a global or system ``core.hooksPath`` exists, again unless you
+pass ``--force``. ``--force`` records the value it replaces, and
+``--uninstall`` puts it back and removes the setting only when it points at
 ``.githooks``.
 
 Usage:
@@ -22,6 +26,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 HOOKS = '.githooks'
 KEY = 'core.hooksPath'
+SAVED = 'decisionbound.previoushookspath'
 
 
 def git_config(repo: Path, *args: str) -> subprocess.CompletedProcess:
@@ -36,10 +41,39 @@ def current(repo: Path) -> str | None:
     return done.stdout.strip() if done.returncode == 0 else None
 
 
+def toplevel(repo: Path) -> Path | None:
+    """Return the root of the repository that contains ``repo``, or None."""
+    done = subprocess.run(['git', '-C', str(repo), 'rev-parse', '--show-toplevel'],
+                          capture_output=True, text=True, encoding='utf-8', errors='replace')
+    return Path(done.stdout.strip()).resolve() if done.returncode == 0 and done.stdout.strip() else None
+
+
+def shadowed(repo: Path) -> list[str]:
+    """List the hooks that setting core.hooksPath would switch off."""
+    found = []
+    done = subprocess.run(['git', '-C', str(repo), 'config', '--show-scope', '--get-all', KEY],
+                          capture_output=True, text=True, encoding='utf-8', errors='replace')
+    for line in done.stdout.splitlines():
+        scope, _, value = line.partition('\t')
+        if scope in ('global', 'system'):
+            found.append(f'a {scope} {KEY} of {value!r}')
+    where = subprocess.run(['git', '-C', str(repo), 'rev-parse', '--git-path', 'hooks'],
+                           capture_output=True, text=True, encoding='utf-8', errors='replace')
+    folder = (repo / where.stdout.strip()) if where.returncode == 0 and where.stdout.strip() else None
+    if folder and folder.is_dir():
+        found += [f'.git/hooks/{item.name}' for item in sorted(folder.iterdir())
+                  if item.is_file() and not item.name.endswith('.sample')]
+    return found
+
+
 def install(repo: Path, force: bool) -> int:
     """Set core.hooksPath to .githooks unless another value is in the way."""
     if not (repo / HOOKS).is_dir():
         print(f'There is no {HOOKS} directory in {repo}.', file=sys.stderr)
+        return 2
+    top = toplevel(repo)
+    if top is None or top != repo.resolve():
+        print(f'{repo} is not the root of a git checkout, so nothing was changed.', file=sys.stderr)
         return 2
     existing = current(repo)
     if existing == HOOKS:
@@ -49,6 +83,16 @@ def install(repo: Path, force: bool) -> int:
         print(f'{KEY} is already set to {existing!r}. Nothing changed. Use --force to replace it.',
               file=sys.stderr)
         return 1
+    others = shadowed(repo)
+    if others and not force:
+        print(f'Setting {KEY} would switch off hooks you already have:', file=sys.stderr)
+        for item in others:
+            print(f' - {item}', file=sys.stderr)
+        print('Nothing changed. Use --force if you accept that, or run the preflight by hand '
+              '(python scripts/preflight.py).', file=sys.stderr)
+        return 1
+    if existing:
+        git_config(repo, SAVED, existing)
     done = git_config(repo, KEY, HOOKS)
     if done.returncode != 0:
         print(done.stderr.strip() or 'git config failed', file=sys.stderr)
@@ -71,11 +115,18 @@ def uninstall(repo: Path) -> int:
     if existing != HOOKS:
         print(f'{KEY} is {existing!r}, not {HOOKS!r}, so it was left alone.', file=sys.stderr)
         return 1
+    saved = git_config(repo, '--get', SAVED)
+    previous = saved.stdout.strip() if saved.returncode == 0 else ''
     done = git_config(repo, '--unset', KEY)
     if done.returncode != 0:
         print(done.stderr.strip() or 'git config failed', file=sys.stderr)
         return 2
-    print(f'Unset {KEY} in the local config. The hooks are off.')
+    git_config(repo, '--unset', SAVED)
+    if previous:
+        git_config(repo, KEY, previous)
+        print(f'Restored {KEY} to {previous!r}. The DecisionBound hooks are off.')
+    else:
+        print(f'Unset {KEY} in the local config. The hooks are off.')
     return 0
 
 

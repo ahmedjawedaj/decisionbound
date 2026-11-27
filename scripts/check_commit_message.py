@@ -6,10 +6,14 @@ This is the body of the ``commit-msg`` hook. It applies the rules of
 the author and committer Git would use, so a marker is refused before the
 commit exists. It does not restate the rules, it calls them.
 
-Git cleans a message by dropping lines that start with ``#`` and everything
-after a scissors line (``git commit --verbose`` appends the diff there), so
-this check does the same. A trailer or footer line in the message itself is
-still refused, even when it is quoted.
+Git keeps comment lines and a scissors tail in a message that comes from
+``-m`` or ``-F``, and drops them only when the editor flow wrote the message.
+The hook cannot see which one it got, so it checks the raw text. The one
+exception is a file that still holds the help text Git writes for the editor
+(``# Please enter the commit message``). Only then are the ``#`` lines and the
+verbose diff after the scissors line left out, because that diff is not part
+of the commit. A message that fakes that help line to hide a marker is not a
+case this local check tries to stop. CI and the pre-push preflight still do.
 
 Usage: check_commit_message.py MESSAGE_FILE
 """
@@ -23,12 +27,15 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import check_attribution  # noqa: E402
 
+EDITOR_HELP = '# Please enter the commit message'
 SCISSORS = re.compile(r'^# -+ >8 -+\s*$')
 IDENT = re.compile(r'^(?P<name>.*) <(?P<email>[^>]*)> \d+ [+-]\d{4}\s*$')
 
 
 def clean(text: str) -> str:
-    """Drop the comment lines and the scissors tail the way Git does."""
+    """Return the text to check: raw, unless it is an editor file with Git's help text."""
+    if EDITOR_HELP not in text:
+        return text
     kept = []
     for line in text.splitlines():
         if SCISSORS.match(line):
