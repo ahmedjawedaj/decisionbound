@@ -655,6 +655,17 @@ This is an *execution kernel*, not a generative coding agent. Providers can
 implement Planner.next_action, but the host always enforces allowlists, effects,
 step limits and observation caps independent of any model response.
 
+### `refusal`
+
+```python
+refusal(kind: type[BaseException], message: str) -> BaseException
+```
+
+Build ``kind(message)`` marked as a refusal written for the model.
+
+The message is fixed text with no host path, so a server may show it to a client.
+Anything not built here is treated as unvetted by the MCP server and replaced.
+
 ### `RepeatedCallError`
 
 The planner proposed the same tool call too many times in a row.

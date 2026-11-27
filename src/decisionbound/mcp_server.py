@@ -10,6 +10,7 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +44,11 @@ _REVIEW_DEFAULT_STEP = ("Call get_workflow_status to see the workflow state. If 
                         "operator to run `dbound review inspect` on it in the local client.")
 _LAUNCH_HINT = (" Check that --path is a repository enrolled with `dbound init`, then run "
                 "`dbound status --path <repository>` to see the identity check result.")
+
+
+_LOG = logging.getLogger(__name__)
+_UNVETTED = ("That request could not be completed. Call search_project to find valid file paths, or ask "
+             "the operator to check the server log.")
 
 
 class WorkflowNotFound(KeyError):
@@ -90,6 +96,9 @@ def _state_guard() -> Iterator[None]:
     try:
         yield
     except (sqlite3.Error, OSError) as exc:
+        # The client gets one fixed text. The operator gets the cause, because the SDK logs a
+        # ToolError at INFO with the message only and no traceback.
+        _LOG.error("DecisionBound state could not be read: %r", exc, exc_info=exc)
         raise _tool_failure(RuntimeError, _STATE_UNAVAILABLE) from exc
 
 
@@ -99,7 +108,11 @@ def _vetted_tool_errors() -> Iterator[None]:
     try:
         yield
     except (ValueError, PermissionError, FileNotFoundError) as exc:
-        raise _tool_failure(type(exc), str(exc)) from exc
+        if getattr(exc, "vetted_refusal", False):
+            raise _tool_failure(type(exc), str(exc)) from exc
+        # Not written for the model, so its text may name a host path or echo input.
+        _LOG.error("A file tool failed with an unvetted error: %r", exc, exc_info=exc)
+        raise _tool_failure(type(exc), _UNVETTED) from exc
 
 
 def create_mcp_server(project_path: Path, store: DecisionRepository | None = None,
@@ -221,13 +234,25 @@ def create_mcp_server(project_path: Path, store: DecisionRepository | None = Non
         from .workflows import WorkflowJournal
         workflow_store = WorkflowJournal(state)
 
+        def row_exists(workflow_id: str) -> bool:
+            """Tell whether the workflow row exists, so a missing row is not confused with damaged state."""
+            with _state_guard(), state._connection() as db:
+                return db.execute("SELECT 1 FROM workflows WHERE workflow_id=?", (workflow_id,)).fetchone() is not None
+
+        def missing_or_damaged(workflow_id: str, exc: KeyError) -> BaseException:
+            """Build the error for a KeyError: not found when the row is absent, else unreadable state."""
+            if not row_exists(workflow_id):
+                return _tool_failure(WorkflowNotFound, _WORKFLOW_NOT_FOUND)
+            _LOG.error("Workflow %s has a row but its state is incomplete: %r", workflow_id, exc, exc_info=exc)
+            return _tool_failure(RuntimeError, _STATE_UNAVAILABLE)
+
         def own_workflow(workflow_id: str) -> dict:
             """Return the workflow status only if it belongs to this server's project."""
             try:
                 with _state_guard():
                     data = workflow_store.status(workflow_id)
-            except KeyError:
-                raise _tool_failure(WorkflowNotFound, _WORKFLOW_NOT_FOUND) from None
+            except KeyError as exc:
+                raise missing_or_damaged(workflow_id, exc) from None
             if data["project_id"] != project.project_id:
                 raise _tool_failure(PermissionError, _WORKFLOW_FOREIGN)
             return data
@@ -254,8 +279,8 @@ def create_mcp_server(project_path: Path, store: DecisionRepository | None = Non
             try:
                 with _state_guard():
                     return ReviewGate(state, state_dir()).snapshot(workflow_id, include_diff=False)
-            except KeyError:
-                raise _tool_failure(WorkflowNotFound, _WORKFLOW_NOT_FOUND) from None
+            except KeyError as exc:
+                raise missing_or_damaged(workflow_id, exc) from None
             except ReviewGitUnavailable as exc:
                 raise _tool_failure(
                     ReviewGitUnavailable,
@@ -275,8 +300,8 @@ def create_mcp_server(project_path: Path, store: DecisionRepository | None = Non
             try:
                 with _state_guard():
                     return workflow_store.events(workflow_id)
-            except KeyError:
-                raise _tool_failure(WorkflowNotFound, _WORKFLOW_NOT_FOUND) from None
+            except KeyError as exc:
+                raise missing_or_damaged(workflow_id, exc) from None
 
     @server.resource("decisionbound://project")
     def current_project() -> str:

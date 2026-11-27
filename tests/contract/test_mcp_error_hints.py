@@ -7,6 +7,7 @@ one test also checks the error type and the wire result when the SDK is installe
 """
 from __future__ import annotations
 
+import logging
 import sqlite3
 import subprocess
 import sys
@@ -141,6 +142,7 @@ def test_unknown_workflow_says_where_to_get_an_id(world, tmp_path, tool, workflo
     error, text = message(world[0].tools[tool], workflow_id)
     assert isinstance(error, KeyError) and isinstance(error, WorkflowNotFound)
     assert "dbound workflow submit" in text and "wf_" in text
+    assert text.startswith("No workflow with that ID")  # a KeyError would otherwise show the text in quotes
     assert_safe(text, tmp_path, workflow_id)
 
 
@@ -242,3 +244,72 @@ def test_absolute_path_refusal_does_not_depend_on_host_symlinks(world, tmp_path)
     error, text = message(world[0].tools["read_file"], str(tmp_path / "linked" / "x.py"))
     assert isinstance(error, ValueError) and "relative to the project root" in text
     assert_safe(text, tmp_path, str(tmp_path / "linked" / "x.py"))
+
+
+def test_an_absolute_path_is_refused_as_not_relative(world, tmp_path):
+    error, text = message(world[0].tools["read_file"], "/etc/passwd")
+    assert isinstance(error, ValueError) and "relative to the project root" in text
+    assert_safe(text, tmp_path, "/etc/passwd")
+
+
+def test_a_folder_that_cannot_be_searched_does_not_leak_its_host_path(world, tmp_path, monkeypatch, caplog):
+    """An unreadable parent folder makes ``Path.is_symlink`` raise with the host path in its text."""
+    from pathlib import Path
+
+    def deny(self):
+        raise PermissionError(13, "Permission denied", str(tmp_path / "repo" / "locked"))
+
+    monkeypatch.setattr(Path, "is_symlink", deny)
+    with caplog.at_level(logging.WARNING):
+        error, text = message(world[0].tools["read_file"], "locked/a.py")
+    assert isinstance(error, PermissionError) and "check its permissions" in text
+    assert_safe(text, tmp_path, "locked")
+    assert "Permission denied" in caplog.text  # the operator still gets the cause
+
+
+def test_an_over_long_name_does_not_escape_as_a_bare_os_error(world, tmp_path):
+    error, text = message(world[0].tools["read_file"], "a" * 5000 + ".py")
+    assert isinstance(error, (FileNotFoundError, PermissionError)) and "search_project" in text
+    assert_safe(text, tmp_path)
+
+
+def test_an_unvetted_file_tool_error_is_replaced_and_logged(world, tmp_path, monkeypatch, caplog):
+    from pathlib import Path
+
+    def odd(self, *args, **kwargs):
+        raise ValueError(f"surprise at {tmp_path}/repo/main.py {SECRET}")
+
+    monkeypatch.setattr(Path, "read_text", odd)
+    with caplog.at_level(logging.ERROR):
+        error, text = message(world[0].tools["read_file"], "main.py")
+    assert isinstance(error, ValueError) and "check the server log" in text
+    assert_safe(text, tmp_path, "main.py")
+    assert "surprise at" in caplog.text
+
+
+@pytest.mark.parametrize("failure", [OSError(13, "Permission denied", "/abs/state.db"),
+                                     sqlite3.DatabaseError("database disk image is malformed")])
+def test_state_failures_give_one_fixed_message_and_log_the_cause(world, tmp_path, monkeypatch, caplog, failure):
+    def broken(self, *a, **k):
+        raise failure
+
+    monkeypatch.setattr(WorkflowJournal, "status", broken)
+    with caplog.at_level(logging.ERROR):
+        error, text = message(world[0].tools["get_workflow_status"], world[3])
+    assert isinstance(error, RuntimeError) and "dbound state check" in text
+    assert_safe(text, tmp_path)
+    assert str(failure.args[-1]) in caplog.text
+
+
+def test_damaged_workflow_state_is_not_reported_as_an_unknown_workflow(world, tmp_path, caplog):
+    server, store, _, own, _ = world
+    with store._connection() as db:
+        db.execute("DELETE FROM workflow_tasks WHERE workflow_id=?", (own,))
+    with caplog.at_level(logging.ERROR):
+        for tool in ("get_workflow_status", "get_workflow_events"):
+            error, text = message(server.tools[tool], own)
+            assert not isinstance(error, WorkflowNotFound) and "dbound state check" in text
+            assert_safe(text, tmp_path)
+    assert "incomplete" in caplog.text
+    error, text = message(server.tools["get_workflow_status"], UNKNOWN_ID)
+    assert isinstance(error, WorkflowNotFound)  # a really missing row still says so
