@@ -232,3 +232,13 @@ def test_errors_are_toolerrors_so_the_official_sdk_shows_them(world):
         call = server.tools[tool]
         error, _ = message(call, arg) if tool != "prepare_context" else message(call, arg, max_tokens=500)
         assert isinstance(error, ToolError), tool
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Creating a symlink needs extra rights on Windows")
+def test_absolute_path_refusal_does_not_depend_on_host_symlinks(world, tmp_path):
+    """On macOS ``/etc`` is a symlink. An absolute path through a symlink must still get the same refusal."""
+    (tmp_path / "real").mkdir()
+    (tmp_path / "linked").symlink_to(tmp_path / "real", target_is_directory=True)
+    error, text = message(world[0].tools["read_file"], str(tmp_path / "linked" / "x.py"))
+    assert isinstance(error, ValueError) and "relative to the project root" in text
+    assert_safe(text, tmp_path, str(tmp_path / "linked" / "x.py"))

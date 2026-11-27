@@ -299,13 +299,17 @@ def repository_readonly_tools(root: Path, max_file_bytes: int = 512_000) -> Tool
         the caller's path and never carry a host path or an operating-system error.
         """
         candidate = Path(path)
+        if candidate.is_absolute() or candidate.anchor:
+            # Checked first so the answer does not depend on the host (``/etc`` is a symlink on macOS).
+            raise ValueError("Paths must be relative to the project root and cannot contain '..'. "
+                             "Call search_project to find valid file paths.")
         if (_is_protected_path(candidate.parts)
                 or any((base / Path(*candidate.parts[:index])).is_symlink()
                        for index in range(1, len(candidate.parts) + 1))):
             raise PermissionError(
                 "That path is protected and is never served. Hidden, secret-like, excluded and symlinked "
                 "paths are refused. Call search_project to find readable source files.")
-        if candidate.is_absolute() or candidate.anchor or ".." in candidate.parts:
+        if ".." in candidate.parts:
             raise ValueError("Paths must be relative to the project root and cannot contain '..'. "
                              "Call search_project to find valid file paths.")
         try:
