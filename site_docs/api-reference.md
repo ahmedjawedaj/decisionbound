@@ -686,6 +686,20 @@ after the closing marker says when the content was cut, either here or by
 the loop's own cap (the loop stores JSON objects, so text that starts with ``{`` but is not valid JSON was cut). The stored
 observation, its hash and the event ledger are not changed by this.
 
+### `render_untrusted_text`
+
+```python
+render_untrusted_text(text: str, limit: int | None = None) -> str
+```
+
+Fence stored free text (a decision statement, an ADR excerpt) as data for a model.
+
+Marker-like runs are neutralised first, so the result always holds one opening and one
+closing marker, and the markers are the ones used for tool observations. With ``limit``
+the neutralised text is cut to that many characters and a note after the closing marker
+says so. The stored text is not changed.
+Use it only for the copy a model reads, never for stored or hashed records.
+
 ### `ToolAction`
 
 Strict action proposed by a planner and revalidated by the runtime.

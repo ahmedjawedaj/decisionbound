@@ -313,6 +313,7 @@
     "tests/security/__init__.py",
     "tests/security/test_code_patch_security.py",
     "tests/security/test_code_sandbox.py",
+    "tests/security/test_decision_text_fence.py",
     "tests/security/test_docker_context_and_image_trust.py",
     "tests/security/test_git_environment_sprint13.py",
     "tests/security/test_project_checkout_binding_sprint13.py",
