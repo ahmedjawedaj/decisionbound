@@ -2,6 +2,7 @@
 from __future__ import annotations
 import json
 import pytest
+from decisionbound.agent_loop import UNTRUSTED_BEGIN, UNTRUSTED_END
 from decisionbound.code_provider import ModelPatchProposer
 from decisionbound.model_planner import (ModelCompletion, ModelLimits, ModelBudgetExceeded,
                                          Pricing, ProviderResponseError, ScriptedModelTransport)
@@ -78,5 +79,6 @@ def test_approved_context_is_injected_separately_from_source_files():
     proposer.propose('change', {'app.py': 'VALUE = 1\n'})
     payload = json.loads(transport.requests[0]['messages'][1]['content'])
     assert payload['approved_context'][0]['protected'] is True
-    assert payload['approved_context'][0]['text'] == 'Avoid global state'
+    # The decision text is fenced as data, and the words themselves are unchanged.
+    assert payload['approved_context'][0]['text'] == f'{UNTRUSTED_BEGIN}\nAvoid global state\n{UNTRUSTED_END}'
     assert payload['selected_files'] == {'app.py': 'VALUE = 1\n'}

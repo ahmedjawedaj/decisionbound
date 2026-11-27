@@ -41,13 +41,21 @@ Example host configuration (format varies by product and version):
 | `get_workflow_events(workflow_id)` | Durable metadata-only handoff and claim events; same project only | Read-only |
 | `decisionbound://project` | Project identity metadata | Read-only resource |
 
+Text a model reads is fenced. In `search_project`, `read_file`, `list_project_decisions` and `prepare_context` the file text, excerpts, decision statements and item text sit between `<<<UNTRUSTED_TOOL_OUTPUT>>>` and `<<<END_UNTRUSTED_TOOL_OUTPUT>>>`, and any run of three or more `<` or `>` in them is broken up. Names and keys such as file paths, the echoed query, item keys and sources are not fenced but get the same breaking up. This is marking only, so see the threat model in `security.md`. Look-alike characters such as fullwidth `<` are not handled.
+
 There is no `execute_shell`, `write_file`, `install_skill`, `approve_decision`, `change_user`, or `switch_project` tool.
 
 ## Workspace and authorization boundary
 
-The server operator binds it to an existing repository at launch. Tools never accept a project-root argument from the model. Every invocation reads from the verified, registered root; hidden paths, credential filenames, symlinked paths, binary files and oversized files are denied by the host.
+The server operator binds it to an existing repository at launch. Tools never accept a project-root argument from the model. Every invocation reads from the verified, registered root; hidden paths, excluded directories, secret-like file names (an exact set such as `credentials.json` and `id_rsa`, plus anchored patterns such as `*.pem`, `*.key`, `*.env`, `secrets.json` and `service-account*.json`, all matched without regard to case), names with a trailing dot or space or a colon, symlinked paths, binary files and oversized files are denied by the host. Ordinary names such as `environment.md`, `key_manager.py` and `secrets_policy.md` stay readable. The same rules apply to `search_project`, which skips such files.
 
 **Local stdio is trusted as the host operating-system user.** Any MCP host connected to it can access the exposed read-only repository data. This is not equivalent to multi-tenant authorization, and a remote MCP endpoint should not be deployed without a separately reviewed identity/auth implementation.
+
+## Error messages and next steps
+
+A tool error names what failed and gives one safe next step, so an agent can recover without guessing. Typical steps are to call `search_project` to find a valid path, to use the stated bounds for `query`, `task` or `max_tokens`, to ask the operator for a workflow ID, or to ask the operator to run `dbound state check` or `dbound review inspect` in the local client. The server never offers a write path as a next step, and approval stays in the local client.
+
+Messages are fixed text. They do not repeat the caller's input and do not carry host paths, operating-system error text, tokens or diffs. The official SDK shows the model only the message of a `ToolError` and reduces any other exception to `Error executing tool <name>`, so these errors are raised as `ToolError` subclasses that are also the original exception type (`PermissionError`, `ValueError`, `KeyError` and so on). `tests/contract/test_mcp_error_hints.py` calls each tool function for each error class, and the real-SDK test checks that the hint reaches the client. Only errors the file tools raise themselves are passed on, anything else is replaced by a fixed message, and the server log keeps the real cause. From `mcp` 2.1.0 the model sees only the message of a `ToolError`, earlier 2.0 releases showed every error text. Unknown and foreign workflow IDs get different messages.
 
 ## Tests and limitations
 

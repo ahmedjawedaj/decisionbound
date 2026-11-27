@@ -1,0 +1,25 @@
+#!/bin/sh
+# Run the local preflight before a push, on what is being pushed.
+# Installed only when you run: python scripts/install_hooks.py
+. "$(dirname "$0")/find-python.sh"
+root=$(git rev-parse --show-toplevel) || exit 1
+cd "$root" || exit 1
+head=$(git rev-parse HEAD 2>/dev/null)
+
+status=0
+while read -r local_ref local_sha remote_ref remote_sha
+do
+    case "$local_sha" in
+        *[!0]*) ;;
+        *) continue ;;   # deleting a remote branch, nothing to check
+    esac
+    if [ "$local_sha" = "$head" ]
+    then
+        $PYTHON_CMD scripts/preflight.py --head "$local_sha" || status=1
+    else
+        # The tree on disk is not what is being pushed, so only the history check applies.
+        echo "pre-push: $local_ref is not checked out, so only its commit history is checked."
+        $PYTHON_CMD scripts/preflight.py --head "$local_sha" --only attribution || status=1
+    fi
+done
+exit $status
