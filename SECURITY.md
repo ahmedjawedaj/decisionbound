@@ -1,6 +1,6 @@
 # DecisionBound alpha security policy
 
-**Status: experimental `0.13.0a1`.** This repository contains an operational local SDK, CLI, opt-in provider adapters, local workflows and a loopback API. It has **not** received independent security review and is not approved for unattended access to sensitive production repositories.
+**Status: experimental `0.13.0a2`.** This repository contains an operational local SDK, CLI, opt-in provider adapters, local workflows and a loopback API. It has **not** received independent security review and is not approved for unattended access to sensitive production repositories.
 
 ## Supported versions and reporting
 

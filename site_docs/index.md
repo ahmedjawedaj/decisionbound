@@ -2,7 +2,7 @@
 
 **Portable engineering judgment for AI agents.** A local-first experimental platform for evidence-backed engineering decisions, selective context reuse, and audited, budget-limited tool execution.
 
-> **Status: alpha `0.13.0a1` (not production-ready).** Source includes an opt-in model-driven read-only agent, deterministic model-free demo, optional MCP integration, CLI/local API, conservative transfer, a fenced local background coordinator and state recovery/migration checks. Full worker-process containment, live-provider certification, distributed coordination, multi-day endurance and reproducible research comparisons remain open.
+> **Status: alpha `0.13.0a2` (not production-ready).** Source includes an opt-in model-driven read-only agent, deterministic model-free demo, optional MCP integration, CLI/local API, conservative transfer, a fenced local background coordinator and state recovery/migration checks. Full worker-process containment, live-provider certification, distributed coordination, multi-day endurance and reproducible research comparisons remain open.
 
 [Source and contribution guide](https://github.com/ahmedjawedaj/decisionbound) · [Public roadmap](https://github.com/ahmedjawedaj/decisionbound/blob/main/ROADMAP.md) · [Apache-2.0 license](https://github.com/ahmedjawedaj/decisionbound/blob/main/LICENSE) · [Citation](https://github.com/ahmedjawedaj/decisionbound/blob/main/CITATION.cff)
 
